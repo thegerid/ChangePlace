@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#121416" />
+    <meta
+      name="description"
+      content="PWA-макет Альфа-Банка: сервис обмена районами работы для сотрудников доставки банковских продуктов."
+    />
+    <title>Альфа-Банк - сервис обмена районами</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./assets/icon.svg" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <main id="map" aria-label="Интерактивная карта сотрудников"></main>
+
+      <header class="app-header" aria-label="Панель сервиса обмена районами">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">А</span>
+          <div class="brand-copy">
+            <strong>Альфа-Банк</strong>
+            <span>Сервис обмена районами</span>
+          </div>
+        </div>
+
+        <div class="header-controls">
+          <div class="cleanup-pill">
+            <span>очистка</span>
+            <strong id="cleanupCountdown">--:--</strong>
+          </div>
+          <button class="theme-toggle" id="themeToggle" type="button" aria-label="Включить светлую тему" aria-pressed="false">
+            <span class="theme-toggle-track" aria-hidden="true">
+              <span class="theme-toggle-knob"></span>
+            </span>
+          </button>
+        </div>
+      </header>
+
+      <nav class="filter-bar" aria-label="Фильтр точек по статусу">
+        <button class="filter-chip is-active" type="button" data-filter="all">Все</button>
+        <button class="filter-chip" type="button" data-filter="search">Ищу обмен</button>
+        <button class="filter-chip" type="button" data-filter="ready">Готов</button>
+        <button class="filter-chip" type="button" data-filter="agreed">Договорился</button>
+        <button class="filter-chip" type="button" data-filter="unavailable">Не готов</button>
+      </nav>
+
+      <aside class="map-hint" id="mapHint">
+        Тапните по карте, чтобы поставить свою точку, или используйте геолокацию.
+      </aside>
+
+      <div class="action-dock" aria-label="Основные действия">
+        <button class="dock-button primary" id="ownPointButton" type="button">
+          <span class="dock-icon" aria-hidden="true">+</span>
+          <span id="ownPointButtonText">Добавить себя</span>
+        </button>
+        <button class="dock-button" id="listButton" type="button">
+          <span class="dock-icon" aria-hidden="true">=</span>
+          <span>Список</span>
+        </button>
+        <button class="dock-button has-badge" id="proposalsButton" type="button">
+          <span class="dock-icon" aria-hidden="true">!</span>
+          <span>Заявки</span>
+          <span class="dock-badge" id="proposalBadge" hidden>0</span>
+        </button>
+        <button class="dock-button" id="geoButton" type="button">
+          <span class="dock-icon" aria-hidden="true">@</span>
+          <span>Гео</span>
+        </button>
+      </div>
+
+      <section class="sheet" id="sheet" aria-live="polite" aria-hidden="true">
+        <button class="sheet-close" id="sheetClose" type="button" aria-label="Закрыть">x</button>
+        <div class="sheet-grip" aria-hidden="true"></div>
+        <div class="sheet-content" id="sheetContent"></div>
+      </section>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
