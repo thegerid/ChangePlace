@@ -1,4 +1,4 @@
-const CACHE_NAME = "changeplace-pwa-v15";
+const CACHE_NAME = "changeplace-pwa-v16";
 const SHELL_ASSETS = [
   "./",
   "./index.html",

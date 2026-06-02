@@ -37,6 +37,7 @@
   };
 
   const dom = {
+    shell: document.querySelector(".app-shell"),
     map: document.getElementById("map"),
     sheet: document.getElementById("sheet"),
     sheetContent: document.getElementById("sheetContent"),
@@ -49,6 +50,7 @@
     geoButton: document.getElementById("geoButton"),
     ownerContactsButton: document.getElementById("ownerContactsButton"),
     themeToggle: document.getElementById("themeToggle"),
+    themeTransition: document.getElementById("themeTransition"),
     cleanupCountdown: document.getElementById("cleanupCountdown"),
     mapHint: document.getElementById("mapHint"),
     toast: document.getElementById("toast"),
@@ -63,6 +65,9 @@
   let pendingLatLng = null;
   let moveMode = false;
   let toastTimer = 0;
+  let themeTransitionActive = false;
+  let themeTransitionApplyTimer = 0;
+  let themeTransitionCleanupTimer = 0;
 
   init();
 
@@ -1010,10 +1015,69 @@
   }
 
   function toggleTheme() {
+    if (themeTransitionActive) return;
+
     const nextTheme = document.documentElement.dataset.theme === "light" ? "dark" : "light";
-    applyTheme(nextTheme);
-    localStorage.setItem(THEME_KEY, nextTheme);
-    showToast(nextTheme === "light" ? "Включена светлая тема." : "Включена темная тема.");
+    const toastMessage =
+      nextTheme === "light"
+        ? "\u0412\u043a\u043b\u044e\u0447\u0435\u043d\u0430 \u0441\u0432\u0435\u0442\u043b\u0430\u044f \u0442\u0435\u043c\u0430."
+        : "\u0412\u043a\u043b\u044e\u0447\u0435\u043d\u0430 \u0442\u0435\u043c\u043d\u0430\u044f \u0442\u0435\u043c\u0430.";
+
+    runThemeTransition(nextTheme, () => {
+      applyTheme(nextTheme);
+      localStorage.setItem(THEME_KEY, nextTheme);
+      showToast(toastMessage);
+    });
+  }
+
+  function runThemeTransition(theme, onCovered) {
+    const overlay = dom.themeTransition;
+    const reducedMotion =
+      typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (!overlay || !dom.shell || reducedMotion) {
+      onCovered();
+      return;
+    }
+
+    themeTransitionActive = true;
+    window.clearTimeout(themeTransitionApplyTimer);
+    window.clearTimeout(themeTransitionCleanupTimer);
+    overlay.classList.remove("is-running");
+
+    const shellRect = dom.shell.getBoundingClientRect();
+    const toggleRect = dom.themeToggle.getBoundingClientRect();
+    const originX = toggleRect.left + toggleRect.width / 2 - shellRect.left;
+    const originY = toggleRect.top + toggleRect.height / 2 - shellRect.top;
+
+    overlay.style.setProperty("--theme-x", `${originX}px`);
+    overlay.style.setProperty("--theme-y", `${originY}px`);
+    overlay.style.setProperty("--theme-transition-color", theme === "light" ? "#f3f5f7" : "#121416");
+
+    let applied = false;
+    let cleaned = false;
+
+    const applyAtCover = () => {
+      if (applied) return;
+      applied = true;
+      onCovered();
+    };
+
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      window.clearTimeout(themeTransitionApplyTimer);
+      window.clearTimeout(themeTransitionCleanupTimer);
+      applyAtCover();
+      overlay.classList.remove("is-running");
+      themeTransitionActive = false;
+    };
+
+    overlay.addEventListener("animationend", cleanup, { once: true });
+    void overlay.offsetWidth;
+    overlay.classList.add("is-running");
+    themeTransitionApplyTimer = window.setTimeout(applyAtCover, 300);
+    themeTransitionCleanupTimer = window.setTimeout(cleanup, 860);
   }
 
   function applyTheme(theme) {

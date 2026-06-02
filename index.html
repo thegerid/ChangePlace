@@ -36,9 +36,8 @@
             <strong id="cleanupCountdown">--:--</strong>
           </div>
           <button class="theme-toggle" id="themeToggle" type="button" aria-label="Включить светлую тему" aria-pressed="false">
-            <span class="theme-toggle-track" aria-hidden="true">
-              <span class="theme-toggle-knob"></span>
-            </span>
+            <span class="theme-icon theme-icon-sun" aria-hidden="true"></span>
+            <span class="theme-icon theme-icon-moon" aria-hidden="true"></span>
           </button>
         </div>
 
@@ -85,6 +84,7 @@
       </section>
 
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      <div class="theme-transition" id="themeTransition" aria-hidden="true"></div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
