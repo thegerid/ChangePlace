@@ -1,6 +1,8 @@
 # Backend setup on Supabase Free
 
-This setup keeps the frontend on GitHub Pages and uses Supabase Free for auth, database, realtime, and scheduled cleanup.
+This setup keeps the frontend on GitHub Pages and uses Supabase Free for public map data.
+
+Current mode: no registration. Any visitor can open the map and see active points. A browser can edit/delete only the point created from the same `device_id` stored in localStorage/cookie.
 
 ## 1. Create a free Supabase project
 
@@ -8,55 +10,15 @@ This setup keeps the frontend on GitHub Pages and uses Supabase Free for auth, d
 2. Create a new project.
 3. In `Project Settings > API`, copy:
    - Project URL
-   - `anon public` key
+   - `anon public` / `publishable` key
 
 ## 2. Run SQL
 
 Open `SQL Editor` and run the whole `supabase/schema.sql` file.
 
-## 3. Enable email OTP
+If you previously ran the registration-based schema, run this file again. It contains migration statements that add public `device_id` mode.
 
-In `Authentication > Providers > Email`:
-
-- enable Email provider;
-- enable OTP / magic link flow;
-- add `https://goswitch.ru` to allowed redirect URLs.
-
-## 3.1. Send only a numeric code, not a login link
-
-The frontend already uses the code flow:
-
-- `supabase.auth.signInWithOtp(...)` sends the email;
-- `supabase.auth.verifyOtp({ email, token, type: "email" })` verifies the code typed in the app.
-
-To make the email contain only the code:
-
-1. Open `Authentication > Email Templates`.
-2. Open the `Magic Link` template.
-3. Replace the template body with this:
-
-```html
-<h2>Код входа в ChangePlace</h2>
-<p>Введите этот код в приложении:</p>
-<p style="font-size: 28px; font-weight: 700; letter-spacing: 4px;">{{ .Token }}</p>
-<p>Если вы не запрашивали вход, просто проигнорируйте это письмо.</p>
-```
-
-4. Open the `Confirm Signup` template and use the same body.
-
-Do not include `{{ .ConfirmationURL }}` in either template if users should not click links. Supabase's `{{ .Token }}` variable contains the 6-digit OTP code.
-
-## 4. Restrict registration to `@alfabank.ru`
-
-In `Authentication > Hooks`:
-
-- choose `Before User Created`;
-- select Postgres function `public.hook_restrict_signup_by_email_domain`;
-- save.
-
-This blocks users whose email does not end with `@alfabank.ru`.
-
-## 5. Enable Realtime
+## 3. Enable Realtime
 
 In `Database > Replication`, enable Realtime for:
 
@@ -64,15 +26,15 @@ In `Database > Replication`, enable Realtime for:
 - `exchange_offers`;
 - `exchange_stats`.
 
-## 6. Daily cleanup
+## 4. Daily cleanup
 
-Free path: open the Supabase SQL Editor daily while testing and run:
+Free path while testing:
 
 ```sql
 select public.cleanup_daily_points();
 ```
 
-Production path: use Supabase Cron if enabled on the plan:
+Production path, if Supabase Cron is enabled:
 
 ```sql
 select cron.schedule(
@@ -84,7 +46,7 @@ select cron.schedule(
 
 `20:59 UTC` equals `23:59 Europe/Moscow`.
 
-## 7. Connect the site
+## 5. Connect the site
 
 Edit `config.js`:
 
@@ -95,4 +57,6 @@ window.CHANGEPLACE_CONFIG = {
 };
 ```
 
-Commit and push. The anon key is public by design; security is enforced by RLS policies.
+Commit and push.
+
+The anon/publishable key is public by design. Direct reads/writes for `points` and `exchange_offers` are blocked; public reads and writes go through SQL RPC functions. The browser `device_id` is used only server-side to decide which point belongs to the current device and is not exposed for other users.

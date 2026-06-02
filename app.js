@@ -109,9 +109,9 @@
   let pendingLatLng = null;
   let moveMode = false;
   let toastTimer = 0;
-  let currentUser = null;
   let realtimeChannel = null;
   let backendReloadTimer = 0;
+  let backendPollTimer = 0;
 
   init();
 
@@ -183,8 +183,6 @@
   function bindEvents() {
     dom.sheetClose.addEventListener("click", closeSheet);
     dom.ownPointButton.addEventListener("click", () => {
-      if (!ensureAuthenticatedForBackend()) return;
-
       const own = getOwnPoint();
       if (own) {
         pendingLatLng = L.latLng(own.lat, own.lng);
@@ -197,11 +195,9 @@
     });
 
     dom.listButton.addEventListener("click", () => {
-      if (!ensureAuthenticatedForBackend()) return;
       openNearbyList();
     });
     dom.proposalsButton.addEventListener("click", () => {
-      if (!ensureAuthenticatedForBackend()) return;
       openProposalsScreen("incoming");
     });
     dom.geoButton.addEventListener("click", locateUser);
@@ -287,168 +283,30 @@
   async function initBackend() {
     if (!isBackendConfigured()) return;
 
-    const { data } = await supabaseClient.auth.getSession();
-    currentUser = data.session?.user || null;
-
-    supabaseClient.auth.onAuthStateChange((_event, session) => {
-      currentUser = session?.user || null;
-      if (currentUser) {
-        loadRemoteState().catch((error) => {
-          console.error(error);
-          showToast("Не удалось загрузить публичные точки.");
-        });
-        subscribeToRealtime();
-      } else {
-        unsubscribeFromRealtime();
-        state.points = [];
-        state.proposals = [];
-        state.ownPointId = null;
-        refresh();
-        openAuthScreen();
-      }
-    });
-
-    if (currentUser) {
-      await loadRemoteState();
-      subscribeToRealtime();
-    } else {
-      state.points = [];
-      state.proposals = [];
-      state.ownPointId = null;
-      refresh();
-      openAuthScreen();
-    }
+    await loadRemoteState();
+    subscribeToRealtime();
+    startBackendPolling();
   }
 
   function isBackendConfigured() {
     return Boolean(supabaseClient);
   }
 
-  function ensureAuthenticatedForBackend() {
-    if (!isBackendConfigured() || currentUser) return true;
-    openAuthScreen();
-    showToast("Для публичных точек войдите через корпоративную почту @alfabank.ru.");
-    return false;
-  }
-
-  function openAuthScreen() {
-    if (!isBackendConfigured()) return;
-
-    dom.sheetContent.innerHTML = `
-      <h2 class="sheet-title">Вход для сотрудников</h2>
-      <p class="sheet-subtitle">Введите корпоративную почту @alfabank.ru. Код подтверждения придет на email.</p>
-      <form class="form-grid" id="authForm" novalidate>
-        <label class="field" data-field="email">
-          <span>Корпоративная почта *</span>
-          <input name="email" type="email" inputmode="email" autocomplete="email" placeholder="name@alfabank.ru" />
-          <small class="field-error">Используйте почту с доменом @alfabank.ru.</small>
-        </label>
-        <label class="field" data-field="token">
-          <span>Код из письма</span>
-          <input name="token" inputmode="numeric" autocomplete="one-time-code" placeholder="6 цифр" />
-          <small class="field-error">Введите код из письма.</small>
-        </label>
-        <div class="button-grid">
-          <button class="action-button primary" type="button" id="sendOtpButton">Получить код</button>
-          <button class="action-button" type="submit">Войти</button>
-        </div>
-      </form>
-    `;
-
-    const form = document.getElementById("authForm");
-    const emailInput = form.elements.email;
-    const tokenInput = form.elements.token;
-
-    emailInput.addEventListener("input", () => clearFieldError(emailInput));
-    tokenInput.addEventListener("input", () => clearFieldError(tokenInput));
-
-    document.getElementById("sendOtpButton").addEventListener("click", async () => {
-      const email = normalizeEmail(emailInput.value);
-      if (!isAllowedCorporateEmail(email)) {
-        setFieldError(emailInput, "Используйте почту с доменом @alfabank.ru.");
-        emailInput.focus();
-        return;
-      }
-
-      const { error } = await supabaseClient.auth.signInWithOtp({
-        email,
-        options: {
-          shouldCreateUser: true,
-          emailRedirectTo: window.location.origin,
-        },
-      });
-
-      if (error) {
-        showToast(error.message || "Не удалось отправить код.");
-        return;
-      }
-
-      showToast("Код отправлен на корпоративную почту.");
-      tokenInput.focus();
-    });
-
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const email = normalizeEmail(emailInput.value);
-      const token = String(tokenInput.value || "").trim();
-
-      if (!isAllowedCorporateEmail(email)) {
-        setFieldError(emailInput, "Используйте почту с доменом @alfabank.ru.");
-        emailInput.focus();
-        return;
-      }
-
-      if (!token) {
-        setFieldError(tokenInput, "Введите код из письма.");
-        tokenInput.focus();
-        return;
-      }
-
-      const { data, error } = await supabaseClient.auth.verifyOtp({
-        email,
-        token,
-        type: "email",
-      });
-
-      if (error) {
-        showToast(error.message || "Код не подошел.");
-        return;
-      }
-
-      currentUser = data.user;
-      await loadRemoteState();
-      subscribeToRealtime();
-      closeSheet();
-      showToast("Вход выполнен. Публичные точки загружены.");
-    });
-
-    openSheet();
-  }
-
-  function normalizeEmail(value) {
-    return String(value || "").trim().toLowerCase();
-  }
-
-  function isAllowedCorporateEmail(value) {
-    return /^[^\s@]+@alfabank\.ru$/i.test(normalizeEmail(value));
-  }
-
   async function loadRemoteState() {
-    if (!isBackendConfigured() || !currentUser) return;
+    if (!isBackendConfigured()) return;
 
     const city = cities[state.cityId] || cities.spb;
     const dayKey = getDayKey(city);
     const [pointsResult, proposalsResult] = await Promise.all([
-      supabaseClient
-        .from("points")
-        .select("*")
-        .eq("day_key", dayKey)
-        .is("deleted_at", null),
-      supabaseClient
-        .from("exchange_offers")
-        .select("*")
-        .eq("day_key", dayKey)
-        .order("created_at", { ascending: false }),
+      supabaseClient.rpc("get_public_points", {
+        p_device_id: state.deviceId,
+        p_city_id: state.cityId,
+        p_day_key: dayKey,
+      }),
+      supabaseClient.rpc("get_public_exchange_offers", {
+        p_device_id: state.deviceId,
+        p_day_key: dayKey,
+      }),
     ]);
 
     if (pointsResult.error) throw pointsResult.error;
@@ -457,13 +315,13 @@
     state.dayKey = dayKey;
     state.points = (pointsResult.data || []).map(normalizeRemotePoint);
     state.proposals = (proposalsResult.data || []).map(normalizeRemoteProposal);
-    const own = state.points.find((point) => point.userId === currentUser.id);
+    const own = state.points.find((point) => point.isOwn || point.deviceId === state.deviceId);
     state.ownPointId = own?.id || null;
     refresh();
   }
 
   function scheduleRemoteReload() {
-    if (!isBackendConfigured() || !currentUser) return;
+    if (!isBackendConfigured()) return;
 
     window.clearTimeout(backendReloadTimer);
     backendReloadTimer = window.setTimeout(() => {
@@ -474,7 +332,7 @@
   }
 
   function subscribeToRealtime() {
-    if (!isBackendConfigured() || !currentUser || realtimeChannel) return;
+    if (!isBackendConfigured() || realtimeChannel) return;
 
     realtimeChannel = supabaseClient
       .channel("changeplace-live")
@@ -489,10 +347,23 @@
     realtimeChannel = null;
   }
 
+  function startBackendPolling() {
+    if (backendPollTimer) return;
+    backendPollTimer = window.setInterval(scheduleRemoteReload, 15000);
+  }
+
+  function stopBackendPolling() {
+    window.clearInterval(backendPollTimer);
+    backendPollTimer = 0;
+  }
+
   function normalizeRemotePoint(row) {
+    const isOwn = Boolean(row.is_own);
     return normalizePoint({
       id: row.id,
-      userId: row.user_id,
+      userId: "",
+      deviceId: isOwn ? state.deviceId : "",
+      isOwn,
       cityId: row.city_id,
       dayKey: row.day_key,
       name: row.full_name,
@@ -511,8 +382,10 @@
   function normalizeRemoteProposal(row) {
     return {
       id: row.id,
-      fromUserId: row.from_user_id,
-      toUserId: row.to_user_id,
+      fromUserId: "",
+      toUserId: "",
+      fromDeviceId: "",
+      toDeviceId: "",
       fromId: row.from_point_id,
       toId: row.to_point_id,
       cityId: state.cityId,
@@ -593,8 +466,6 @@
   }
 
   function handleMapClick(event) {
-    if (!ensureAuthenticatedForBackend()) return;
-
     const own = getOwnPoint();
     pendingLatLng = event.latlng;
 
@@ -753,7 +624,6 @@
 
   function handleFormSubmit(event) {
     event.preventDefault();
-    if (!ensureAuthenticatedForBackend()) return;
 
     const form = event.currentTarget;
     const formData = new FormData(form);
@@ -832,7 +702,7 @@
     const duplicate = state.points.find(
       (point) =>
         (isBackendConfigured()
-          ? point.userId === currentUser?.id
+          ? point.deviceId === state.deviceId
           : point.deviceId === state.deviceId) && point.id !== existing?.id,
     );
     if (duplicate) {
@@ -886,41 +756,26 @@
 
   async function saveRemotePoint(point, existing) {
     const dayKey = getDayKey(cities[state.cityId] || cities.spb);
-    const payload = {
-      user_id: currentUser.id,
-      city_id: point.cityId,
-      day_key: dayKey,
-      full_name: point.name,
-      phone: point.phone || null,
-      telegram: point.telegram || null,
-      max: point.max || null,
-      preferred_location: point.location,
-      comment: point.comment || null,
-      status: point.status,
-      lat: point.lat,
-      lng: point.lng,
-      deleted_at: null,
-    };
-
-    const result = existing
-      ? await supabaseClient
-          .from("points")
-          .update(payload)
-          .eq("id", existing.id)
-          .eq("user_id", currentUser.id)
-          .select()
-          .single()
-      : await supabaseClient.from("points").insert(payload).select().single();
+    const result = await supabaseClient.rpc("upsert_public_point", {
+      p_point_id: existing?.id || null,
+      p_device_id: state.deviceId,
+      p_city_id: point.cityId,
+      p_day_key: dayKey,
+      p_full_name: point.name,
+      p_phone: point.phone || null,
+      p_telegram: point.telegram || null,
+      p_max: point.max || null,
+      p_preferred_location: point.location,
+      p_comment: point.comment || null,
+      p_status: point.status,
+      p_lat: point.lat,
+      p_lng: point.lng,
+    });
 
     if (result.error) throw result.error;
 
-    await supabaseClient
-      .from("profiles")
-      .update({ full_name: point.name })
-      .eq("user_id", currentUser.id);
-
     await loadRemoteState();
-    const savedPoint = normalizeRemotePoint(result.data);
+    const savedPoint = normalizeRemotePoint(Array.isArray(result.data) ? result.data[0] : result.data);
     openCard(savedPoint.id);
     showToast(existing ? "Ваша точка обновлена." : "Точка опубликована на общей карте.");
   }
@@ -1030,8 +885,6 @@
   }
 
   async function createProposal(target) {
-    if (!ensureAuthenticatedForBackend()) return;
-
     const own = getOwnPoint();
     if (!own) {
       showToast("Сначала добавьте свою точку на карту.");
@@ -1059,13 +912,10 @@
     }
 
     if (isBackendConfigured()) {
-      const { error } = await supabaseClient.from("exchange_offers").insert({
-        from_user_id: currentUser.id,
-        to_user_id: target.userId,
-        from_point_id: own.id,
-        to_point_id: target.id,
-        day_key: getDayKey(cities[state.cityId] || cities.spb),
-        status: "pending",
+      const { error } = await supabaseClient.rpc("create_public_exchange_offer", {
+        p_from_device_id: state.deviceId,
+        p_to_point_id: target.id,
+        p_day_key: getDayKey(cities[state.cityId] || cities.spb),
       });
 
       if (error) {
@@ -1189,7 +1039,10 @@
     if (!proposal || proposal.status !== "pending") return;
 
     if (isBackendConfigured()) {
-      const { error } = await supabaseClient.rpc("accept_exchange_offer", { offer_id: proposalId });
+      const { error } = await supabaseClient.rpc("accept_exchange_offer", {
+        offer_id: proposalId,
+        requester_device_id: state.deviceId,
+      });
       if (error) {
         showToast(error.message || "Не удалось принять обмен.");
         return;
@@ -1232,11 +1085,10 @@
     if (!proposal || proposal.status !== "pending") return;
 
     if (isBackendConfigured()) {
-      const { error } = await supabaseClient
-        .from("exchange_offers")
-        .update({ status: "declined", responded_at: new Date().toISOString() })
-        .eq("id", proposalId)
-        .eq("to_user_id", currentUser.id);
+      const { error } = await supabaseClient.rpc("decline_exchange_offer", {
+        offer_id: proposalId,
+        requester_device_id: state.deviceId,
+      });
 
       if (error) {
         showToast(error.message || "Не удалось отклонить предложение.");
@@ -1356,13 +1208,10 @@
   }
 
   function getOwnPoint() {
-    if (isBackendConfigured() && currentUser) {
-      const byUser = state.points.find((point) => point.userId === currentUser.id);
-      if (byUser) {
-        state.ownPointId = byUser.id;
-        return byUser;
-      }
-      return null;
+    if (isBackendConfigured()) {
+      const byDevice = state.points.find((point) => point.deviceId === state.deviceId);
+      state.ownPointId = byDevice?.id || null;
+      return byDevice || null;
     }
 
     const byId = state.points.find((point) => point.id === state.ownPointId);
@@ -1401,22 +1250,10 @@
     if (!own) return;
 
     if (isBackendConfigured()) {
-      const { error } = await supabaseClient
-        .from("points")
-        .update({ lat: latLng.lat, lng: latLng.lng })
-        .eq("id", own.id)
-        .eq("user_id", currentUser.id);
-
-      if (error) {
-        showToast(error.message || "Не удалось перенести точку.");
-        return;
-      }
-
+      const moved = { ...own, lat: latLng.lat, lng: latLng.lng, updatedAt: new Date().toISOString() };
       saveLastLocation(latLng, 14);
       moveMode = false;
-      await loadRemoteState();
-      openCard(own.id);
-      showToast(message);
+      await saveRemotePoint(moved, own);
       return;
     }
 
@@ -1439,11 +1276,10 @@
     if (!confirmed) return;
 
     if (isBackendConfigured()) {
-      const { error } = await supabaseClient
-        .from("points")
-        .update({ deleted_at: new Date().toISOString() })
-        .eq("id", own.id)
-        .eq("user_id", currentUser.id);
+      const { error } = await supabaseClient.rpc("delete_public_point", {
+        p_point_id: own.id,
+        p_device_id: state.deviceId,
+      });
 
       if (error) {
         showToast(error.message || "Не удалось удалить точку.");
