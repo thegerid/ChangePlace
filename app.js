@@ -892,7 +892,7 @@
       phone: point.phone || "",
       telegram: point.telegram || point.messenger || "",
       max: point.max || "",
-      status: point.status === "ready" ? "search" : statuses[point.status] ? point.status : "unavailable",
+      status: statuses[point.status] ? point.status : "unavailable",
     };
   }
 
