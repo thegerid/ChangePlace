@@ -1,4 +1,4 @@
-const CACHE_NAME = "changeplace-pwa-v20";
+const CACHE_NAME = "changeplace-pwa-v21";
 const SHELL_ASSETS = [
   "./",
   "./index.html",
@@ -36,8 +36,10 @@ self.addEventListener("fetch", (event) => {
         .then((response) => {
           const shouldCache =
             response.ok &&
+            !request.url.endsWith("/config.js") &&
             (request.url.startsWith(self.location.origin) ||
               request.url.includes("unpkg.com") ||
+              request.url.includes("jsdelivr.net") ||
               request.url.includes("cartocdn.com"));
 
           if (shouldCache) {
