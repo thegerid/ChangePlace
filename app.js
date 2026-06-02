@@ -60,6 +60,19 @@
     /анал/i,
     /проститут/i,
     /шлюх/i,
+    /лох/i,
+    /лошар/i,
+    /дурак/i,
+    /дурн/i,
+    /дебил/i,
+    /идиот/i,
+    /кретин/i,
+    /урод/i,
+    /тупиц/i,
+    /мраз/i,
+    /твар/i,
+    /сук[аи]/i,
+    /коз[её]л/i,
   ];
 
   const dom = {
@@ -76,7 +89,6 @@
     ownerContactsButton: document.getElementById("ownerContactsButton"),
     themeToggle: document.getElementById("themeToggle"),
     cleanupCountdown: document.getElementById("cleanupCountdown"),
-    mapHint: document.getElementById("mapHint"),
     toast: document.getElementById("toast"),
     filterBar: document.querySelector(".filter-bar"),
     filters: Array.from(document.querySelectorAll("[data-filter]")),
@@ -931,9 +943,6 @@
     dom.ownPointButtonText.textContent = own ? "Моя точка" : "Добавить себя";
     dom.proposalBadge.hidden = pendingIncoming === 0;
     dom.proposalBadge.textContent = String(pendingIncoming);
-    dom.mapHint.textContent = own
-      ? "Ваша точка активна. Откройте «Моя точка», чтобы изменить данные или перенести место."
-      : "Тапните по карте, чтобы поставить свою точку, или используйте геолокацию.";
 
     refreshMarkers();
   }

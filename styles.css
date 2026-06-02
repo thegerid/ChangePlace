@@ -114,7 +114,6 @@ button {
       .cleanup-pill,
       .theme-toggle,
       .filter-chip,
-      .map-hint,
       .action-dock,
       .dock-button,
       .sheet-content,
@@ -439,22 +438,6 @@ button {
   border-color: #111417;
   background: #111417;
   color: #ffffff;
-}
-
-.map-hint {
-  position: absolute;
-  z-index: 4;
-  top: calc(max(12px, env(safe-area-inset-top)) + 122px);
-  left: 12px;
-  max-width: min(330px, calc(100vw - 24px));
-  border: 1px solid var(--warning-line);
-  border-radius: var(--radius);
-  background: var(--warning-bg);
-  color: var(--warning-text);
-  padding: 9px 11px;
-  font-size: 13px;
-  line-height: 1.3;
-  box-shadow: var(--shadow);
 }
 
 .owner-contacts-links {
