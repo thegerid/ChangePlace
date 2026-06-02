@@ -150,11 +150,12 @@ button {
   top: max(12px, env(safe-area-inset-top));
   left: 12px;
   right: 12px;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px;
+  padding: 10px 10px 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel-soft);
@@ -309,16 +310,12 @@ button {
 }
 
 .filter-bar {
-  position: absolute;
-  z-index: 5;
-  top: calc(max(12px, env(safe-area-inset-top)) + 74px);
-  left: 12px;
-  right: 12px;
+  grid-column: 1 / -1;
   display: flex;
   gap: 8px;
-  max-width: calc(100% - 24px);
+  max-width: 100%;
   overflow-x: auto;
-  padding: 0 34px 4px 0;
+  padding: 0 22px 2px 0;
   mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 26px), transparent 100%);
   overscroll-behavior-x: contain;
   scroll-padding-inline: 2px 34px;
@@ -352,7 +349,7 @@ button {
 .map-hint {
   position: absolute;
   z-index: 4;
-  top: calc(max(12px, env(safe-area-inset-top)) + 118px);
+  top: calc(max(12px, env(safe-area-inset-top)) + 122px);
   left: 12px;
   max-width: min(330px, calc(100vw - 24px));
   border: 1px solid var(--warning-line);
