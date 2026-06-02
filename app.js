@@ -6,13 +6,10 @@
   const DEVICE_KEY = "changeplace:device_id";
   const DEVICE_COOKIE = "changeplace_device_id";
   const LAST_LOCATION_KEY = "changeplace:last_location";
-  const SUPABASE_CONFIG = window.CHANGEPLACE_CONFIG || {};
-  const supabaseClient =
-    SUPABASE_CONFIG.supabaseUrl &&
-    SUPABASE_CONFIG.supabaseAnonKey &&
-    window.supabase?.createClient
-      ? window.supabase.createClient(SUPABASE_CONFIG.supabaseUrl, SUPABASE_CONFIG.supabaseAnonKey)
-      : null;
+  const APP_CONFIG = window.CHANGEPLACE_CONFIG || {};
+  const apiBaseUrl =
+    typeof APP_CONFIG.apiBaseUrl === "string" ? APP_CONFIG.apiBaseUrl.replace(/\/+$/, "") : null;
+  const apiClient = apiBaseUrl === null ? null : createApiClient(apiBaseUrl);
   const tileThemes = {
     dark: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
     light: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
@@ -109,7 +106,6 @@
   let pendingLatLng = null;
   let moveMode = false;
   let toastTimer = 0;
-  let realtimeChannel = null;
   let backendReloadTimer = 0;
   let backendPollTimer = 0;
 
@@ -284,12 +280,63 @@
     if (!isBackendConfigured()) return;
 
     await loadRemoteState();
-    subscribeToRealtime();
     startBackendPolling();
   }
 
   function isBackendConfigured() {
-    return Boolean(supabaseClient);
+    return Boolean(apiClient);
+  }
+
+  function createApiClient(baseUrl) {
+    return {
+      getState(params) {
+        return apiRequest(baseUrl, "/api/state", { params });
+      },
+      upsertPoint(payload) {
+        return apiRequest(baseUrl, "/api/points", { method: "POST", body: payload });
+      },
+      deletePoint(pointId, payload) {
+        return apiRequest(baseUrl, `/api/points/${encodeURIComponent(pointId)}`, {
+          method: "DELETE",
+          body: payload,
+        });
+      },
+      createOffer(payload) {
+        return apiRequest(baseUrl, "/api/offers", { method: "POST", body: payload });
+      },
+      acceptOffer(offerId, payload) {
+        return apiRequest(baseUrl, `/api/offers/${encodeURIComponent(offerId)}/accept`, {
+          method: "POST",
+          body: payload,
+        });
+      },
+      declineOffer(offerId, payload) {
+        return apiRequest(baseUrl, `/api/offers/${encodeURIComponent(offerId)}/decline`, {
+          method: "POST",
+          body: payload,
+        });
+      },
+    };
+  }
+
+  async function apiRequest(baseUrl, path, options = {}) {
+    const url = new URL(`${baseUrl}${path}`, window.location.origin);
+    Object.entries(options.params || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) url.searchParams.set(key, value);
+    });
+
+    const response = await fetch(url, {
+      method: options.method || "GET",
+      headers: options.body ? { "Content-Type": "application/json" } : undefined,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(data.message || data.error || "Сервер временно недоступен.");
+    }
+
+    return data;
   }
 
   async function loadRemoteState() {
@@ -297,24 +344,15 @@
 
     const city = cities[state.cityId] || cities.spb;
     const dayKey = getDayKey(city);
-    const [pointsResult, proposalsResult] = await Promise.all([
-      supabaseClient.rpc("get_public_points", {
-        p_device_id: state.deviceId,
-        p_city_id: state.cityId,
-        p_day_key: dayKey,
-      }),
-      supabaseClient.rpc("get_public_exchange_offers", {
-        p_device_id: state.deviceId,
-        p_day_key: dayKey,
-      }),
-    ]);
-
-    if (pointsResult.error) throw pointsResult.error;
-    if (proposalsResult.error) throw proposalsResult.error;
+    const remoteState = await apiClient.getState({
+      device_id: state.deviceId,
+      city_id: state.cityId,
+      day_key: dayKey,
+    });
 
     state.dayKey = dayKey;
-    state.points = (pointsResult.data || []).map(normalizeRemotePoint);
-    state.proposals = (proposalsResult.data || []).map(normalizeRemoteProposal);
+    state.points = (remoteState.points || []).map(normalizeRemotePoint);
+    state.proposals = (remoteState.proposals || []).map(normalizeRemoteProposal);
     const own = state.points.find((point) => point.isOwn || point.deviceId === state.deviceId);
     state.ownPointId = own?.id || null;
     refresh();
@@ -329,22 +367,6 @@
         console.error(error);
       });
     }, 250);
-  }
-
-  function subscribeToRealtime() {
-    if (!isBackendConfigured() || realtimeChannel) return;
-
-    realtimeChannel = supabaseClient
-      .channel("changeplace-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "points" }, scheduleRemoteReload)
-      .on("postgres_changes", { event: "*", schema: "public", table: "exchange_offers" }, scheduleRemoteReload)
-      .subscribe();
-  }
-
-  function unsubscribeFromRealtime() {
-    if (!realtimeChannel) return;
-    supabaseClient.removeChannel(realtimeChannel);
-    realtimeChannel = null;
   }
 
   function startBackendPolling() {
@@ -756,26 +778,24 @@
 
   async function saveRemotePoint(point, existing) {
     const dayKey = getDayKey(cities[state.cityId] || cities.spb);
-    const result = await supabaseClient.rpc("upsert_public_point", {
-      p_point_id: existing?.id || null,
-      p_device_id: state.deviceId,
-      p_city_id: point.cityId,
-      p_day_key: dayKey,
-      p_full_name: point.name,
-      p_phone: point.phone || null,
-      p_telegram: point.telegram || null,
-      p_max: point.max || null,
-      p_preferred_location: point.location,
-      p_comment: point.comment || null,
-      p_status: point.status,
-      p_lat: point.lat,
-      p_lng: point.lng,
+    const result = await apiClient.upsertPoint({
+      point_id: existing?.id || null,
+      device_id: state.deviceId,
+      city_id: point.cityId,
+      day_key: dayKey,
+      full_name: point.name,
+      phone: point.phone || null,
+      telegram: point.telegram || null,
+      max: point.max || null,
+      preferred_location: point.location,
+      comment: point.comment || null,
+      status: point.status,
+      lat: point.lat,
+      lng: point.lng,
     });
 
-    if (result.error) throw result.error;
-
     await loadRemoteState();
-    const savedPoint = normalizeRemotePoint(Array.isArray(result.data) ? result.data[0] : result.data);
+    const savedPoint = normalizeRemotePoint(result.point);
     openCard(savedPoint.id);
     showToast(existing ? "Ваша точка обновлена." : "Точка опубликована на общей карте.");
   }
@@ -912,13 +932,13 @@
     }
 
     if (isBackendConfigured()) {
-      const { error } = await supabaseClient.rpc("create_public_exchange_offer", {
-        p_from_device_id: state.deviceId,
-        p_to_point_id: target.id,
-        p_day_key: getDayKey(cities[state.cityId] || cities.spb),
-      });
-
-      if (error) {
+      try {
+        await apiClient.createOffer({
+          from_device_id: state.deviceId,
+          to_point_id: target.id,
+          day_key: getDayKey(cities[state.cityId] || cities.spb),
+        });
+      } catch (error) {
         showToast(error.message || "Не удалось отправить предложение.");
         return;
       }
@@ -1039,11 +1059,11 @@
     if (!proposal || proposal.status !== "pending") return;
 
     if (isBackendConfigured()) {
-      const { error } = await supabaseClient.rpc("accept_exchange_offer", {
-        offer_id: proposalId,
-        requester_device_id: state.deviceId,
-      });
-      if (error) {
+      try {
+        await apiClient.acceptOffer(proposalId, {
+          device_id: state.deviceId,
+        });
+      } catch (error) {
         showToast(error.message || "Не удалось принять обмен.");
         return;
       }
@@ -1085,12 +1105,11 @@
     if (!proposal || proposal.status !== "pending") return;
 
     if (isBackendConfigured()) {
-      const { error } = await supabaseClient.rpc("decline_exchange_offer", {
-        offer_id: proposalId,
-        requester_device_id: state.deviceId,
-      });
-
-      if (error) {
+      try {
+        await apiClient.declineOffer(proposalId, {
+          device_id: state.deviceId,
+        });
+      } catch (error) {
         showToast(error.message || "Не удалось отклонить предложение.");
         return;
       }
@@ -1276,12 +1295,11 @@
     if (!confirmed) return;
 
     if (isBackendConfigured()) {
-      const { error } = await supabaseClient.rpc("delete_public_point", {
-        p_point_id: own.id,
-        p_device_id: state.deviceId,
-      });
-
-      if (error) {
+      try {
+        await apiClient.deletePoint(own.id, {
+          device_id: state.deviceId,
+        });
+      } catch (error) {
         showToast(error.message || "Не удалось удалить точку.");
         return;
       }
