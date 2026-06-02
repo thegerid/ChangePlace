@@ -580,10 +580,6 @@ button {
   color: var(--amber);
 }
 
-.status-ready {
-  color: var(--teal);
-}
-
 .status-agreed {
   color: var(--violet);
 }
@@ -958,10 +954,6 @@ button {
 }
 
 .marker-search {
-  color: inherit;
-}
-
-.marker-ready {
   color: inherit;
 }
 

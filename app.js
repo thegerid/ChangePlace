@@ -22,7 +22,6 @@
 
   const statuses = {
     search: { label: "Ищу обмен", markerClass: "marker-search", badgeClass: "status-search" },
-    ready: { label: "Готов к обмену", markerClass: "marker-ready", badgeClass: "status-ready" },
     agreed: { label: "Уже договорился", markerClass: "marker-agreed", badgeClass: "status-agreed" },
     unavailable: {
       label: "Не готов меняться",
@@ -366,7 +365,7 @@
     if (!point) return;
 
     const isOwn = point.id === state.ownPointId;
-    const status = statuses[point.status] || statuses.ready;
+    const status = statuses[point.status] || statuses.search;
     const distance = getDistanceLabel(point);
     const openProposal = getActiveProposalWith(point.id);
 
@@ -676,7 +675,7 @@
   }
 
   function renderNearbyItem(point) {
-    const status = statuses[point.status] || statuses.ready;
+    const status = statuses[point.status] || statuses.search;
     return `
       <article class="nearby-item">
         <div class="nearby-head">
@@ -723,7 +722,7 @@
   }
 
   function createPersonIcon(point) {
-    const status = statuses[point.status] || statuses.ready;
+    const status = statuses[point.status] || statuses.search;
     const ownClass = point.id === state.ownPointId ? "marker-own" : "";
     return L.divIcon({
       html: "",
@@ -893,7 +892,7 @@
       phone: point.phone || "",
       telegram: point.telegram || point.messenger || "",
       max: point.max || "",
-      status: statuses[point.status] ? point.status : "unavailable",
+      status: point.status === "ready" ? "search" : statuses[point.status] ? point.status : "unavailable",
     };
   }
 
