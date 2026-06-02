@@ -17,6 +17,11 @@
       timeZone: "Europe/Moscow",
       center: [59.93428, 30.3351],
       zoom: 11,
+      minZoom: 9,
+      bounds: [
+        [59.55, 29.35],
+        [60.25, 31.25],
+      ],
     },
   };
 
@@ -37,7 +42,6 @@
   };
 
   const dom = {
-    shell: document.querySelector(".app-shell"),
     map: document.getElementById("map"),
     sheet: document.getElementById("sheet"),
     sheetContent: document.getElementById("sheetContent"),
@@ -50,10 +54,10 @@
     geoButton: document.getElementById("geoButton"),
     ownerContactsButton: document.getElementById("ownerContactsButton"),
     themeToggle: document.getElementById("themeToggle"),
-    themeTransition: document.getElementById("themeTransition"),
     cleanupCountdown: document.getElementById("cleanupCountdown"),
     mapHint: document.getElementById("mapHint"),
     toast: document.getElementById("toast"),
+    filterBar: document.querySelector(".filter-bar"),
     filters: Array.from(document.querySelectorAll("[data-filter]")),
   };
 
@@ -65,9 +69,6 @@
   let pendingLatLng = null;
   let moveMode = false;
   let toastTimer = 0;
-  let themeTransitionActive = false;
-  let themeTransitionApplyTimer = 0;
-  let themeTransitionCleanupTimer = 0;
 
   init();
 
@@ -81,15 +82,23 @@
     }
 
     const city = cities[state.cityId] || cities.spb;
+    const worldBounds = L.latLngBounds([-85.05112878, -180], [85.05112878, 180]);
+    const cityBounds = city.bounds ? L.latLngBounds(city.bounds) : worldBounds;
     map = L.map("map", {
       center: city.center,
       zoom: city.zoom,
+      minZoom: city.minZoom,
+      maxBounds: cityBounds,
+      maxBoundsViscosity: 1,
+      worldCopyJump: false,
       zoomControl: false,
     });
 
     baseTileLayer = L.tileLayer(getTileUrl(loadTheme()), {
       attribution: '&copy; OpenStreetMap, &copy; CARTO',
       maxZoom: 19,
+      noWrap: true,
+      bounds: worldBounds,
     }).addTo(map);
 
     clusterLayer = L.markerClusterGroup({
@@ -144,6 +153,73 @@
         refreshMarkers();
       });
     });
+
+    enableFilterBarDrag();
+  }
+
+  function enableFilterBarDrag() {
+    const bar = dom.filterBar;
+    if (!bar) return;
+
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    let startScrollLeft = 0;
+    let moved = false;
+    let suppressClick = false;
+
+    bar.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+
+      isDragging = true;
+      moved = false;
+      startX = event.clientX;
+      startY = event.clientY;
+      startScrollLeft = bar.scrollLeft;
+      bar.classList.add("is-dragging");
+      bar.setPointerCapture(event.pointerId);
+    });
+
+    bar.addEventListener("pointermove", (event) => {
+      if (!isDragging) return;
+
+      const deltaX = event.clientX - startX;
+      const deltaY = event.clientY - startY;
+      if (Math.abs(deltaX) <= 4 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+
+      moved = true;
+      bar.scrollLeft = startScrollLeft - deltaX;
+      event.preventDefault();
+    });
+
+    const stopDragging = (event) => {
+      if (!isDragging) return;
+
+      isDragging = false;
+      bar.classList.remove("is-dragging");
+      if (bar.hasPointerCapture(event.pointerId)) {
+        bar.releasePointerCapture(event.pointerId);
+      }
+
+      if (moved) {
+        suppressClick = true;
+        window.setTimeout(() => {
+          suppressClick = false;
+        }, 160);
+      }
+    };
+
+    bar.addEventListener("pointerup", stopDragging);
+    bar.addEventListener("pointercancel", stopDragging);
+    bar.addEventListener(
+      "click",
+      (event) => {
+        if (!suppressClick) return;
+        event.preventDefault();
+        event.stopPropagation();
+      },
+      true,
+    );
   }
 
   function handleMapClick(event) {
@@ -1011,73 +1087,13 @@
   function loadTheme() {
     const saved = localStorage.getItem(THEME_KEY);
     if (saved === "light" || saved === "dark") return saved;
-    return "dark";
+    return "light";
   }
 
   function toggleTheme() {
-    if (themeTransitionActive) return;
-
     const nextTheme = document.documentElement.dataset.theme === "light" ? "dark" : "light";
-    const toastMessage =
-      nextTheme === "light"
-        ? "\u0412\u043a\u043b\u044e\u0447\u0435\u043d\u0430 \u0441\u0432\u0435\u0442\u043b\u0430\u044f \u0442\u0435\u043c\u0430."
-        : "\u0412\u043a\u043b\u044e\u0447\u0435\u043d\u0430 \u0442\u0435\u043c\u043d\u0430\u044f \u0442\u0435\u043c\u0430.";
-
-    runThemeTransition(nextTheme, () => {
-      applyTheme(nextTheme);
-      localStorage.setItem(THEME_KEY, nextTheme);
-      showToast(toastMessage);
-    });
-  }
-
-  function runThemeTransition(theme, onCovered) {
-    const overlay = dom.themeTransition;
-    const reducedMotion =
-      typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    if (!overlay || !dom.shell || reducedMotion) {
-      onCovered();
-      return;
-    }
-
-    themeTransitionActive = true;
-    window.clearTimeout(themeTransitionApplyTimer);
-    window.clearTimeout(themeTransitionCleanupTimer);
-    overlay.classList.remove("is-running");
-
-    const shellRect = dom.shell.getBoundingClientRect();
-    const toggleRect = dom.themeToggle.getBoundingClientRect();
-    const originX = toggleRect.left + toggleRect.width / 2 - shellRect.left;
-    const originY = toggleRect.top + toggleRect.height / 2 - shellRect.top;
-
-    overlay.style.setProperty("--theme-x", `${originX}px`);
-    overlay.style.setProperty("--theme-y", `${originY}px`);
-    overlay.style.setProperty("--theme-transition-color", theme === "light" ? "#f3f5f7" : "#121416");
-
-    let applied = false;
-    let cleaned = false;
-
-    const applyAtCover = () => {
-      if (applied) return;
-      applied = true;
-      onCovered();
-    };
-
-    const cleanup = () => {
-      if (cleaned) return;
-      cleaned = true;
-      window.clearTimeout(themeTransitionApplyTimer);
-      window.clearTimeout(themeTransitionCleanupTimer);
-      applyAtCover();
-      overlay.classList.remove("is-running");
-      themeTransitionActive = false;
-    };
-
-    overlay.addEventListener("animationend", cleanup, { once: true });
-    void overlay.offsetWidth;
-    overlay.classList.add("is-running");
-    themeTransitionApplyTimer = window.setTimeout(applyAtCover, 300);
-    themeTransitionCleanupTimer = window.setTimeout(cleanup, 860);
+    applyTheme(nextTheme);
+    localStorage.setItem(THEME_KEY, nextTheme);
   }
 
   function applyTheme(theme) {
