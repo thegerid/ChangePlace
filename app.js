@@ -5,6 +5,7 @@
   const THEME_KEY = "changeplace:theme";
   const DEVICE_KEY = "changeplace:device_id";
   const DEVICE_COOKIE = "changeplace_device_id";
+  const LAST_LOCATION_KEY = "changeplace:last_location";
   const tileThemes = {
     dark: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
     light: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
@@ -17,10 +18,10 @@
       timeZone: "Europe/Moscow",
       center: [59.93428, 30.3351],
       zoom: 11,
-      minZoom: 9,
+      minZoom: 3,
       bounds: [
-        [59.55, 29.35],
-        [60.25, 31.25],
+        [41.15, -180],
+        [82.25, 180],
       ],
     },
   };
@@ -84,9 +85,10 @@
     const city = cities[state.cityId] || cities.spb;
     const worldBounds = L.latLngBounds([-85.05112878, -180], [85.05112878, 180]);
     const cityBounds = city.bounds ? L.latLngBounds(city.bounds) : worldBounds;
+    const initialView = getInitialView(city);
     map = L.map("map", {
-      center: city.center,
-      zoom: city.zoom,
+      center: initialView.center,
+      zoom: initialView.zoom,
       minZoom: city.minZoom,
       maxBounds: cityBounds,
       maxBoundsViscosity: 1,
@@ -118,6 +120,7 @@
     map.on("click", handleMapClick);
     bindEvents();
     refresh();
+    tryUseGrantedGeolocation();
     updateCountdown();
     setInterval(updateCountdown, 1000);
 
@@ -222,6 +225,75 @@
     );
   }
 
+  function getInitialView(city) {
+    const own = state.points.find((point) => point.id === state.ownPointId || point.deviceId === state.deviceId);
+    if (own && isAllowedMapPoint(own)) {
+      return { center: [own.lat, own.lng], zoom: 14 };
+    }
+
+    const savedLocation = loadLastLocation();
+    if (savedLocation && isAllowedMapPoint(savedLocation)) {
+      return { center: [savedLocation.lat, savedLocation.lng], zoom: savedLocation.zoom || 13 };
+    }
+
+    return { center: city.center, zoom: city.zoom };
+  }
+
+  function tryUseGrantedGeolocation() {
+    if (!navigator.geolocation || !navigator.permissions) return;
+
+    navigator.permissions
+      .query({ name: "geolocation" })
+      .then((permission) => {
+        if (permission.state !== "granted") return;
+        locateUser({ silent: true, openFormOnNewPoint: false, updateOwnPoint: false });
+      })
+      .catch(() => {});
+  }
+
+  function loadLastLocation() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LAST_LOCATION_KEY) || "null");
+      if (!saved) return null;
+
+      const lat = Number(saved.lat);
+      const lng = Number(saved.lng);
+      const zoom = Number(saved.zoom);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+      return {
+        lat,
+        lng,
+        zoom: Number.isFinite(zoom) ? zoom : 13,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function saveLastLocation(latLng, zoom = 13) {
+    localStorage.setItem(
+      LAST_LOCATION_KEY,
+      JSON.stringify({
+        lat: latLng.lat,
+        lng: latLng.lng,
+        zoom,
+        updatedAt: new Date().toISOString(),
+      }),
+    );
+  }
+
+  function isAllowedMapPoint(point) {
+    const city = cities[state.cityId] || cities.spb;
+    if (!city.bounds) return true;
+
+    const lat = Number(point.lat);
+    const lng = Number(point.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+
+    return L.latLngBounds(city.bounds).contains(L.latLng(lat, lng));
+  }
+
   function handleMapClick(event) {
     const own = getOwnPoint();
     pendingLatLng = event.latlng;
@@ -239,30 +311,43 @@
     openForm();
   }
 
-  function locateUser() {
+  function locateUser(options = {}) {
+    const { silent = false, openFormOnNewPoint = true, updateOwnPoint = true } = options;
+
     if (!navigator.geolocation) {
-      showToast("Геолокация недоступна в этом браузере.");
+      if (!silent) showToast("Геолокация недоступна в этом браузере.");
       return;
     }
 
-    dom.geoButton.classList.add("is-active");
+    if (!silent) dom.geoButton.classList.add("is-active");
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const latLng = L.latLng(position.coords.latitude, position.coords.longitude);
-        pendingLatLng = latLng;
-        map.setView(latLng, 15);
-        dom.geoButton.classList.remove("is-active");
+        if (!isAllowedMapPoint(latLng)) {
+          if (!silent) {
+            dom.geoButton.classList.remove("is-active");
+            showToast("Геолокация вне доступной области карты.");
+          }
+          return;
+        }
 
-        if (getOwnPoint()) {
+        pendingLatLng = latLng;
+        saveLastLocation(latLng, 15);
+        map.setView(latLng, 15);
+        if (!silent) dom.geoButton.classList.remove("is-active");
+
+        if (getOwnPoint() && updateOwnPoint) {
           updateOwnLocation(latLng, "Точка перенесена по геолокации.");
-        } else {
+        } else if (!getOwnPoint() && openFormOnNewPoint) {
           openForm();
-          showToast("Геолокация найдена. Заполните карточку для публикации.");
+          if (!silent) showToast("Геолокация найдена. Заполните карточку для публикации.");
         }
       },
       () => {
-        dom.geoButton.classList.remove("is-active");
-        showToast("Не удалось получить геолокацию. Можно поставить точку вручную.");
+        if (!silent) {
+          dom.geoButton.classList.remove("is-active");
+          showToast("Не удалось получить геолокацию. Можно поставить точку вручную.");
+        }
       },
       { enableHighAccuracy: true, timeout: 9000, maximumAge: 30000 },
     );
@@ -426,6 +511,7 @@
       lng: Number(formData.get("lng")),
       updatedAt: new Date().toISOString(),
     };
+    saveLastLocation(L.latLng(point.lat, point.lng), 14);
 
     if (existing) {
       const index = state.points.findIndex((item) => item.id === existing.id);
@@ -859,6 +945,7 @@
     own.lat = latLng.lat;
     own.lng = latLng.lng;
     own.updatedAt = new Date().toISOString();
+    saveLastLocation(latLng, 14);
     moveMode = false;
     saveState();
     refresh();

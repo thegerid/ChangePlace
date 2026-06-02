@@ -436,9 +436,9 @@ button {
 }
 
 .filter-chip.is-active {
-  border-color: rgba(229, 57, 53, 0.72);
-  background: rgba(229, 57, 53, 0.16);
-  color: #fff1f1;
+  border-color: #111417;
+  background: #111417;
+  color: #ffffff;
 }
 
 .map-hint {
@@ -555,11 +555,41 @@ button {
   font-weight: 800;
 }
 
+.dock-icon-geo {
+  position: relative;
+  width: 24px;
+  height: 24px;
+}
+
+.dock-icon-geo::before {
+  position: absolute;
+  left: 7px;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-radius: 50% 50% 50% 0;
+  content: "";
+  transform: rotate(-45deg);
+}
+
+.dock-icon-geo::after {
+  position: absolute;
+  left: 11px;
+  top: 8px;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+}
+
 .dock-button > span:not(.dock-icon):not(.dock-badge) {
   max-width: 100%;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-align: center;
+  text-overflow: clip;
+  white-space: normal;
   font-size: 11px;
   line-height: 1.05;
 }
