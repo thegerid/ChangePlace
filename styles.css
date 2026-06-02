@@ -365,32 +365,15 @@ button {
   box-shadow: var(--shadow);
 }
 
-.owner-contacts {
-  position: absolute;
-  z-index: 5;
-  left: 12px;
-  right: 12px;
-  bottom: calc(82px + env(safe-area-inset-bottom));
-  display: grid;
-  gap: 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--panel) 94%, transparent);
-  padding: 10px;
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(16px);
-}
-
-.owner-contacts-title {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1;
-}
-
 .owner-contacts-links {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.owner-contacts-links.in-sheet {
+  margin-top: 16px;
+  grid-template-columns: 1fr;
 }
 
 .owner-contacts-links a {
@@ -413,7 +396,7 @@ button {
   right: 0;
   bottom: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0;
   min-height: calc(64px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
@@ -913,7 +896,7 @@ button {
   z-index: 20;
   left: 12px;
   right: 12px;
-  bottom: calc(154px + env(safe-area-inset-bottom));
+  bottom: calc(76px + env(safe-area-inset-bottom));
   min-height: 42px;
   border: 1px solid var(--line);
   border-radius: var(--radius);

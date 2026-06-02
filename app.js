@@ -48,6 +48,7 @@
     proposalsButton: document.getElementById("proposalsButton"),
     proposalBadge: document.getElementById("proposalBadge"),
     geoButton: document.getElementById("geoButton"),
+    ownerContactsButton: document.getElementById("ownerContactsButton"),
     themeToggle: document.getElementById("themeToggle"),
     cleanupCountdown: document.getElementById("cleanupCountdown"),
     mapHint: document.getElementById("mapHint"),
@@ -129,6 +130,7 @@
     dom.listButton.addEventListener("click", openNearbyList);
     dom.proposalsButton.addEventListener("click", () => openProposalsScreen("incoming"));
     dom.geoButton.addEventListener("click", locateUser);
+    dom.ownerContactsButton.addEventListener("click", openOwnerContacts);
     dom.themeToggle.addEventListener("click", toggleTheme);
 
     dom.filters.forEach((button) => {
@@ -658,6 +660,18 @@
       button.addEventListener("click", () => openCard(button.dataset.openCard));
     });
 
+    openSheet();
+  }
+
+  function openOwnerContacts() {
+    dom.sheetContent.innerHTML = `
+      <h2 class="sheet-title">Контакты владельца</h2>
+      <p class="sheet-subtitle">Связь по вопросам сервиса и доступа.</p>
+      <div class="owner-contacts-links in-sheet">
+        <a href="https://tg.me/demidenca" target="_blank" rel="noreferrer">Telegram</a>
+        <a href="https://xlink.achat.best/open/profile/492794fd-65fc-5f2c-9558-a77c7b043416" target="_blank" rel="noreferrer">А-Чат</a>
+      </div>
+    `;
     openSheet();
   }
 
