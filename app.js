@@ -41,6 +41,26 @@
     accepted: "Принято",
     declined: "Отказ",
   };
+  const MODERATED_TEXT_FIELDS = ["name", "telegram", "max", "location", "comment"];
+  const FORBIDDEN_TEXT_PATTERNS = [
+    /ху[йеяию]/i,
+    /пизд/i,
+    /бля[дт]?/i,
+    /(?:^|[^а-яё])(?:е|ё|йо)б[а-яё]*/i,
+    /муд[ао]/i,
+    /гандон/i,
+    /залуп/i,
+    /дроч/i,
+    /секс/i,
+    /порно/i,
+    /интим/i,
+    /эрот/i,
+    /минет/i,
+    /орал/i,
+    /анал/i,
+    /проститут/i,
+    /шлюх/i,
+  ];
 
   const dom = {
     map: document.getElementById("map"),
@@ -357,6 +377,7 @@
     const own = existingPoint || getOwnPoint();
     const latLng = pendingLatLng || (own ? L.latLng(own.lat, own.lng) : map.getCenter());
     const isEdit = Boolean(own);
+    const phoneValue = formatPhoneValue(own?.phone || "+7 ");
 
     dom.sheetContent.innerHTML = `
       <h2 class="sheet-title">${isEdit ? "Моя точка" : "Добавить себя на карту"}</h2>
@@ -370,12 +391,12 @@
         <label class="field" data-field="name">
           <span>ФИО *</span>
           <input name="name" autocomplete="name" value="${escapeAttr(own?.name || "")}" />
-          <small class="field-error">Укажите ФИО.</small>
+          <small class="field-error">Введите Фамилию Имя Отчество кириллицей.</small>
         </label>
         <label class="field" data-field="phone">
           <span>Телефон</span>
-          <input name="phone" inputmode="tel" autocomplete="tel" value="${escapeAttr(own?.phone || "")}" />
-          <small class="field-error">Укажите хотя бы один канал связи.</small>
+          <input name="phone" inputmode="tel" autocomplete="tel" maxlength="18" placeholder="+7 999 123-45-67" value="${escapeAttr(phoneValue)}" />
+          <small class="field-error">Введите номер по шаблону +7 999 123-45-67.</small>
         </label>
         <label class="field" data-field="telegram">
           <span>Telegram</span>
@@ -407,6 +428,7 @@
         <label class="field" data-field="comment">
           <span>Комментарий</span>
           <textarea name="comment" placeholder="Например, когда удобно созвониться">${escapeHtml(own?.comment || "")}</textarea>
+          <small class="field-error">Комментарий не должен содержать мат или пошлый контекст.</small>
         </label>
         <label class="checkbox-field">
           <input name="privacy" type="checkbox" ${isEdit ? "checked" : ""} />
@@ -429,6 +451,10 @@
       field.addEventListener("input", () => clearFieldError(field));
       field.addEventListener("change", () => clearFieldError(field));
     });
+    const phoneInput = form.elements.phone;
+    ensurePhonePrefix(phoneInput);
+    phoneInput.addEventListener("focus", () => ensurePhonePrefix(phoneInput));
+    phoneInput.addEventListener("input", () => formatPhoneField(phoneInput));
 
     document.getElementById("pickOnMap").addEventListener("click", () => {
       closeSheet();
@@ -451,6 +477,9 @@
     const formData = new FormData(form);
     const required = ["name", "location", "status"];
     let firstInvalid = null;
+    let hasMissingRequired = false;
+    let hasFormatError = false;
+    let hasForbiddenContent = false;
 
     required.forEach((name) => {
       const input = form.elements[name];
@@ -458,26 +487,61 @@
       if (!value) {
         setFieldError(input);
         firstInvalid = firstInvalid || input;
+        hasMissingRequired = true;
       }
     });
 
-    const hasContact = ["phone", "telegram", "max"].some((name) =>
-      String(formData.get(name) || "").trim(),
-    );
-    if (!hasContact) {
-      ["phone", "telegram", "max"].forEach((name) => setFieldError(form.elements[name]));
+    const fullName = normalizeSpaces(formData.get("name"));
+    if (fullName && !isValidFullName(fullName)) {
+      setFieldError(form.elements.name, "Введите Фамилию Имя Отчество кириллицей.");
+      firstInvalid = firstInvalid || form.elements.name;
+      hasFormatError = true;
+    }
+
+    const phoneValue = String(formData.get("phone") || "").trim();
+    const phoneFilled = isPhoneFilled(phoneValue);
+    if (phoneFilled && !isValidRussianPhone(phoneValue)) {
+      setFieldError(form.elements.phone, "Введите номер по шаблону +7 999 123-45-67.");
       firstInvalid = firstInvalid || form.elements.phone;
+      hasFormatError = true;
+    }
+
+    const hasContact =
+      (phoneFilled && isValidRussianPhone(phoneValue)) ||
+      ["telegram", "max"].some((name) => String(formData.get(name) || "").trim());
+    if (!hasContact) {
+      ["phone", "telegram", "max"].forEach((name) =>
+        setFieldError(form.elements[name], "Укажите телефон, Telegram или MAX."),
+      );
+      firstInvalid = firstInvalid || form.elements.phone;
+      hasMissingRequired = true;
+    }
+
+    MODERATED_TEXT_FIELDS.forEach((name) => {
+      const input = form.elements[name];
+      const value = String(formData.get(name) || "").trim();
+      if (!value || !containsForbiddenContent(value)) return;
+
+      setFieldError(input, "Недопустимое содержание: уберите мат или пошлый контекст.");
+      firstInvalid = firstInvalid || input;
+      hasForbiddenContent = true;
+    });
+
+    if (firstInvalid) {
+      if (hasForbiddenContent) {
+        showToast("Форма содержит недопустимые выражения. Уберите мат или пошлый контекст.");
+      } else if (hasFormatError) {
+        showToast("Проверьте ФИО и телефон: данные должны быть в корректном формате.");
+      } else if (hasMissingRequired) {
+        showToast("Заполните обязательные поля карточки.");
+      }
+      firstInvalid.focus();
+      return;
     }
 
     if (!form.elements.privacy.checked) {
       firstInvalid = firstInvalid || form.elements.privacy;
       showToast("Перед публикацией подтвердите публичность данных.");
-      firstInvalid.focus();
-      return;
-    }
-
-    if (firstInvalid) {
-      showToast("Заполните обязательные поля карточки.");
       firstInvalid.focus();
       return;
     }
@@ -500,13 +564,13 @@
       deviceId: state.deviceId,
       deviceOwned: true,
       cityId: state.cityId,
-      name: String(formData.get("name")).trim(),
-      phone: String(formData.get("phone") || "").trim(),
+      name: formatFullName(fullName),
+      phone: phoneFilled ? formatPhoneValue(phoneValue) : "",
       telegram: String(formData.get("telegram") || "").trim(),
       max: String(formData.get("max") || "").trim(),
-      location: String(formData.get("location")).trim(),
+      location: normalizeSpaces(formData.get("location")),
       status: String(formData.get("status")),
-      comment: String(formData.get("comment") || "").trim(),
+      comment: normalizeSpaces(formData.get("comment")),
       lat: Number(formData.get("lat")),
       lng: Number(formData.get("lng")),
       updatedAt: new Date().toISOString(),
@@ -1142,14 +1206,126 @@
     return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
-  function setFieldError(input) {
+  function normalizeSpaces(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+  }
+
+  function formatFullName(value) {
+    return normalizeSpaces(value)
+      .split(" ")
+      .map((part) =>
+        part
+          .split("-")
+          .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase())
+          .join("-"),
+      )
+      .join(" ");
+  }
+
+  function isValidFullName(value) {
+    if (containsForbiddenContent(value)) return false;
+
+    const parts = normalizeSpaces(value).split(" ");
+    if (parts.length !== 3) return false;
+
+    const patronymic = parts[2].toLowerCase();
+    const hasPatronymicEnding = /(вич|вна|ична|инична|оглы|кызы)$/iu.test(patronymic);
+    return hasPatronymicEnding && parts.every(isLikelyNamePart);
+  }
+
+  function isLikelyNamePart(part) {
+    const segments = String(part || "").split("-");
+    return segments.every((segment) => {
+      const normalized = segment.toLowerCase();
+      const hasOnlyCyrillic = /^[а-яё]{2,32}$/iu.test(normalized);
+      const hasVowel = /[аеёиоуыэюя]/iu.test(normalized);
+      const hasConsonant = /[бвгджзйклмнпрстфхцчшщ]/iu.test(normalized);
+      const hasTooManyRepeats = /(.)\1{2,}/iu.test(normalized);
+      return hasOnlyCyrillic && hasVowel && hasConsonant && !hasTooManyRepeats;
+    });
+  }
+
+  function ensurePhonePrefix(input) {
+    if (!input.value.trim()) {
+      input.value = "+7 ";
+    }
+  }
+
+  function formatPhoneField(input) {
+    input.value = formatPhoneValue(input.value);
+  }
+
+  function getPhoneDigits(value) {
+    let digits = String(value || "").replace(/\D/g, "");
+    if (digits.startsWith("8")) digits = `7${digits.slice(1)}`;
+    if (!digits.startsWith("7")) digits = `7${digits}`;
+    return digits.slice(0, 11);
+  }
+
+  function formatPhoneValue(value) {
+    const digits = getPhoneDigits(value);
+    const rest = digits.slice(1);
+    if (!rest) return "+7 ";
+
+    let formatted = "+7";
+    if (rest.length > 0) formatted += ` ${rest.slice(0, 3)}`;
+    if (rest.length > 3) formatted += ` ${rest.slice(3, 6)}`;
+    if (rest.length > 6) formatted += `-${rest.slice(6, 8)}`;
+    if (rest.length > 8) formatted += `-${rest.slice(8, 10)}`;
+    return formatted;
+  }
+
+  function isPhoneFilled(value) {
+    return getPhoneDigits(value).length > 1;
+  }
+
+  function isValidRussianPhone(value) {
+    return /^7\d{10}$/.test(getPhoneDigits(value));
+  }
+
+  function containsForbiddenContent(value) {
+    const text = normalizeModerationText(value);
+    if (!text) return false;
+    return FORBIDDEN_TEXT_PATTERNS.some((pattern) => pattern.test(text.compact) || pattern.test(text.spaced));
+  }
+
+  function normalizeModerationText(value) {
+    const mapped = String(value || "")
+      .toLowerCase()
+      .replace(/ё/g, "е")
+      .replace(/[a@]/g, "а")
+      .replace(/e/g, "е")
+      .replace(/o/g, "о")
+      .replace(/p/g, "р")
+      .replace(/c/g, "с")
+      .replace(/x/g, "х")
+      .replace(/y/g, "у");
+
+    return {
+      spaced: mapped,
+      compact: mapped.replace(/[^а-яёa-z0-9]+/giu, ""),
+    };
+  }
+
+  function setFieldError(input, message) {
     const field = input.closest(".field");
-    if (field) field.classList.add("is-invalid");
+    if (!field) return;
+
+    const error = field.querySelector(".field-error");
+    if (error) {
+      if (!error.dataset.defaultText) error.dataset.defaultText = error.textContent;
+      if (message) error.textContent = message;
+    }
+    field.classList.add("is-invalid");
   }
 
   function clearFieldError(input) {
     const field = input.closest(".field");
-    if (field) field.classList.remove("is-invalid");
+    if (!field) return;
+
+    const error = field.querySelector(".field-error");
+    if (error?.dataset.defaultText) error.textContent = error.dataset.defaultText;
+    field.classList.remove("is-invalid");
   }
 
   function openSheet() {

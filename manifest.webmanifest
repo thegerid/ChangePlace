@@ -1,13 +1,13 @@
 {
   "name": "Альфа-Банк - обмен районами",
   "short_name": "Альфа обмен",
-  "description": "PWA-макет карты для обмена районами работы, заявок на обмен и поиска коллег рядом.",
+  "description": "Сервис обмена районами работы для сотрудников достав банковских продуктов.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#121416",
-  "theme_color": "#121416",
+  "background_color": "#f3f5f7",
+  "theme_color": "#f3f5f7",
   "lang": "ru",
   "icons": [
     {
