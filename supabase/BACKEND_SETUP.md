@@ -42,7 +42,9 @@ To make the email contain only the code:
 <p>Если вы не запрашивали вход, просто проигнорируйте это письмо.</p>
 ```
 
-Do not include `{{ .ConfirmationURL }}` in this template if users should not click links.
+4. Open the `Confirm Signup` template and use the same body.
+
+Do not include `{{ .ConfirmationURL }}` in either template if users should not click links. Supabase's `{{ .Token }}` variable contains the 6-digit OTP code.
 
 ## 4. Restrict registration to `@alfabank.ru`
 
