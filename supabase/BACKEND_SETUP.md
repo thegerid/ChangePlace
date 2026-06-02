@@ -22,6 +22,28 @@ In `Authentication > Providers > Email`:
 - enable OTP / magic link flow;
 - add `https://goswitch.ru` to allowed redirect URLs.
 
+## 3.1. Send only a numeric code, not a login link
+
+The frontend already uses the code flow:
+
+- `supabase.auth.signInWithOtp(...)` sends the email;
+- `supabase.auth.verifyOtp({ email, token, type: "email" })` verifies the code typed in the app.
+
+To make the email contain only the code:
+
+1. Open `Authentication > Email Templates`.
+2. Open the `Magic Link` template.
+3. Replace the template body with this:
+
+```html
+<h2>Код входа в ChangePlace</h2>
+<p>Введите этот код в приложении:</p>
+<p style="font-size: 28px; font-weight: 700; letter-spacing: 4px;">{{ .Token }}</p>
+<p>Если вы не запрашивали вход, просто проигнорируйте это письмо.</p>
+```
+
+Do not include `{{ .ConfirmationURL }}` in this template if users should not click links.
+
 ## 4. Restrict registration to `@alfabank.ru`
 
 In `Authentication > Hooks`:
