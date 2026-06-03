@@ -10,6 +10,42 @@ const HOST = process.env.HOST || "0.0.0.0";
 const PORT = Number(process.env.PORT || 4173);
 const MAX_BODY_BYTES = 1024 * 1024;
 const ALLOWED_STATUSES = new Set(["search", "agreed", "unavailable"]);
+const MODERATED_FIELDS = ["full_name", "telegram", "max", "preferred_location", "comment"];
+const FORBIDDEN_TEXT_PATTERNS = [
+  /ху[йеяию]/i,
+  /пизд/i,
+  /бля[дт]?/i,
+  /(?:^|[^а-яё])(?:е|ё|йо)б[а-яё]*/i,
+  /говн/i,
+  /дерьм/i,
+  /сран/i,
+  /муд[ао]/i,
+  /гандон/i,
+  /залуп/i,
+  /дроч/i,
+  /секс/i,
+  /порно/i,
+  /интим/i,
+  /эрот/i,
+  /минет/i,
+  /орал/i,
+  /анал/i,
+  /проститут/i,
+  /шлюх/i,
+  /лох/i,
+  /лошар/i,
+  /дурак/i,
+  /дурн/i,
+  /дебил/i,
+  /идиот/i,
+  /кретин/i,
+  /урод/i,
+  /тупиц/i,
+  /мраз/i,
+  /твар/i,
+  /сук[аи]/i,
+  /коз[её]л/i,
+];
 
 let storeQueue = Promise.resolve();
 
@@ -119,6 +155,19 @@ async function upsertPoint(body) {
   const lat = normalizeCoordinate(body.lat, -90, 90, "lat");
   const lng = normalizeCoordinate(body.lng, -180, 180, "lng");
   const now = new Date().toISOString();
+  const phone = normalizeOptionalText(body.phone);
+  const telegram = normalizeOptionalText(body.telegram);
+  const max = normalizeOptionalText(body.max);
+  const comment = normalizeOptionalText(body.comment);
+
+  validatePointPayload({
+    fullName,
+    preferredLocation,
+    phone,
+    telegram,
+    max,
+    comment,
+  });
 
   return withStore((store, context) => {
     const requestedId = normalizeOptionalText(body.point_id);
@@ -147,11 +196,11 @@ async function upsertPoint(body) {
 
     Object.assign(point, {
       fullName,
-      phone: normalizeOptionalText(body.phone),
-      telegram: normalizeOptionalText(body.telegram),
-      max: normalizeOptionalText(body.max),
+      phone,
+      telegram,
+      max,
       preferredLocation,
-      comment: normalizeOptionalText(body.comment),
+      comment,
       status,
       lat,
       lng,
@@ -540,6 +589,91 @@ function normalizeRequiredText(value, name) {
 function normalizeOptionalText(value) {
   const normalized = String(value || "").trim();
   return normalized || "";
+}
+
+function validatePointPayload(payload) {
+  if (!isValidFullName(payload.fullName)) {
+    throw httpError(400, "Введите корректные Фамилию Имя Отчество без недопустимых выражений.");
+  }
+
+  if (payload.phone && !isValidRussianPhone(payload.phone)) {
+    throw httpError(400, "Введите номер по шаблону +7 999 123-45-67.");
+  }
+
+  const hasContact =
+    isValidRussianPhone(payload.phone) || Boolean(payload.telegram) || Boolean(payload.max);
+  if (!hasContact) {
+    throw httpError(400, "Укажите телефон, Telegram или MAX.");
+  }
+
+  MODERATED_FIELDS.forEach((fieldName) => {
+    const value = normalizeOptionalText(payload[fieldName] || "");
+    if (value && containsForbiddenContent(value)) {
+      throw httpError(400, "Недопустимое содержание: уберите мат или оскорбительные выражения.");
+    }
+  });
+}
+
+function isValidFullName(value) {
+  if (containsForbiddenContent(value)) return false;
+
+  const parts = normalizeSpaces(value).split(" ");
+  if (parts.length !== 3) return false;
+
+  const patronymic = parts[2].toLowerCase();
+  const hasPatronymicEnding = /(вич|вна|ична|инична|оглы|кызы)$/iu.test(patronymic);
+  return hasPatronymicEnding && parts.every(isLikelyNamePart);
+}
+
+function isLikelyNamePart(part) {
+  const segments = String(part || "").split("-");
+  return segments.every((segment) => {
+    const normalized = segment.toLowerCase();
+    const hasOnlyCyrillic = /^[а-яё]{2,32}$/iu.test(normalized);
+    const hasVowel = /[аеёиоуыэюя]/iu.test(normalized);
+    const hasConsonant = /[бвгджзйклмнпрстфхцчшщ]/iu.test(normalized);
+    const hasTooManyRepeats = /(.)\1{2,}/iu.test(normalized);
+    return hasOnlyCyrillic && hasVowel && hasConsonant && !hasTooManyRepeats;
+  });
+}
+
+function isValidRussianPhone(value) {
+  return /^7\d{10}$/.test(getPhoneDigits(value));
+}
+
+function getPhoneDigits(value) {
+  let digits = String(value || "").replace(/\D/g, "");
+  if (digits.startsWith("8")) digits = `7${digits.slice(1)}`;
+  if (!digits.startsWith("7")) digits = `7${digits}`;
+  return digits.slice(0, 11);
+}
+
+function containsForbiddenContent(value) {
+  const text = normalizeModerationText(value);
+  if (!text) return false;
+  return FORBIDDEN_TEXT_PATTERNS.some((pattern) => pattern.test(text.compact) || pattern.test(text.spaced));
+}
+
+function normalizeModerationText(value) {
+  const mapped = String(value || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[a@]/g, "а")
+    .replace(/e/g, "е")
+    .replace(/o/g, "о")
+    .replace(/p/g, "р")
+    .replace(/c/g, "с")
+    .replace(/x/g, "х")
+    .replace(/y/g, "у");
+
+  return {
+    spaced: mapped,
+    compact: mapped.replace(/[^а-яёa-z0-9]+/giu, ""),
+  };
+}
+
+function normalizeSpaces(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
 }
 
 function httpError(status, message) {
