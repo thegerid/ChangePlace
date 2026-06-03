@@ -154,11 +154,13 @@
       spiderfyOnMaxZoom: true,
       disableClusteringAtZoom: 15,
       maxClusterRadius: 46,
+      removeOutsideVisibleBounds: false,
       iconCreateFunction: (cluster) =>
         L.divIcon({
-          html: `<span>${cluster.getChildCount()}</span>`,
+          html: `<span class="cluster-marker__count">${cluster.getChildCount()}</span>`,
           className: "cluster-marker",
-          iconSize: L.point(46, 46),
+          iconSize: L.point(52, 52),
+          iconAnchor: L.point(26, 26),
         }),
     });
     map.addLayer(clusterLayer);
