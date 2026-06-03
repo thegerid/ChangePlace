@@ -7,9 +7,9 @@
   const DEVICE_COOKIE = "changeplace_device_id";
   const LAST_LOCATION_KEY = "changeplace:last_location";
   const APP_CONFIG = window.CHANGEPLACE_CONFIG || {};
-  const apiBaseUrl =
-    typeof APP_CONFIG.apiBaseUrl === "string" ? APP_CONFIG.apiBaseUrl.replace(/\/+$/, "") : null;
-  const apiClient = apiBaseUrl === null ? null : createApiClient(apiBaseUrl);
+  const apiBaseUrls = normalizeApiBaseUrls(APP_CONFIG.apiBaseUrl);
+  let preferredApiBaseUrl = Array.isArray(apiBaseUrls) ? apiBaseUrls[0] ?? "" : apiBaseUrls;
+  const apiClient = apiBaseUrls === null ? null : createApiClient(apiBaseUrls);
   const tileThemes = {
     dark: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
     light: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
@@ -318,31 +318,31 @@
     return Boolean(apiClient);
   }
 
-  function createApiClient(baseUrl) {
+  function createApiClient(baseUrls) {
     return {
       getState(params) {
-        return apiRequest(baseUrl, "/api/state", { params });
+        return apiRequest(baseUrls, "/api/state", { params });
       },
       upsertPoint(payload) {
-        return apiRequest(baseUrl, "/api/points", { method: "POST", body: payload });
+        return apiRequest(baseUrls, "/api/points", { method: "POST", body: payload });
       },
       deletePoint(pointId, payload) {
-        return apiRequest(baseUrl, `/api/points/${encodeURIComponent(pointId)}`, {
+        return apiRequest(baseUrls, `/api/points/${encodeURIComponent(pointId)}`, {
           method: "DELETE",
           body: payload,
         });
       },
       createOffer(payload) {
-        return apiRequest(baseUrl, "/api/offers", { method: "POST", body: payload });
+        return apiRequest(baseUrls, "/api/offers", { method: "POST", body: payload });
       },
       acceptOffer(offerId, payload) {
-        return apiRequest(baseUrl, `/api/offers/${encodeURIComponent(offerId)}/accept`, {
+        return apiRequest(baseUrls, `/api/offers/${encodeURIComponent(offerId)}/accept`, {
           method: "POST",
           body: payload,
         });
       },
       declineOffer(offerId, payload) {
-        return apiRequest(baseUrl, `/api/offers/${encodeURIComponent(offerId)}/decline`, {
+        return apiRequest(baseUrls, `/api/offers/${encodeURIComponent(offerId)}/decline`, {
           method: "POST",
           body: payload,
         });
@@ -351,6 +351,22 @@
   }
 
   async function apiRequest(baseUrl, path, options = {}) {
+    if (Array.isArray(baseUrl)) {
+      let lastError = null;
+      for (const candidateBaseUrl of getOrderedApiBaseUrls(baseUrl)) {
+        try {
+          return await apiRequest(candidateBaseUrl, path, options);
+        } catch (error) {
+          lastError = error;
+          const status = Number(error?.status || 0);
+          if (!(error instanceof TypeError) && ![404, 502, 503, 504].includes(status)) {
+            throw error;
+          }
+        }
+      }
+      throw lastError || new Error("Сервер временно недоступен.");
+    }
+
     const url = new URL(`${baseUrl}${path}`, window.location.origin);
     Object.entries(options.params || {}).forEach(([key, value]) => {
       if (value !== undefined && value !== null) url.searchParams.set(key, value);
@@ -364,10 +380,36 @@
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(data.message || data.error || "Сервер временно недоступен.");
+      const error = new Error(data.message || data.error || "Сервер временно недоступен.");
+      error.status = response.status;
+      throw error;
     }
 
+    preferredApiBaseUrl = baseUrl;
     return data;
+  }
+
+  function normalizeApiBaseUrls(value) {
+    if (Array.isArray(value)) {
+      const normalized = [];
+      value.forEach((item) => {
+        if (item === null || item === undefined) return;
+        const rawValue = typeof item === "string" ? item.trim() : String(item);
+        if (!rawValue && item !== "") return;
+        normalized.push(rawValue.replace(/\/+$/, ""));
+      });
+      return normalized.length ? normalized.filter((item, index) => normalized.indexOf(item) === index) : null;
+    }
+    if (typeof value === "string") {
+      const normalized = value.trim().replace(/\/+$/, "");
+      return normalized || value === "" ? normalized : null;
+    }
+    return null;
+  }
+
+  function getOrderedApiBaseUrls(baseUrls) {
+    if (!preferredApiBaseUrl) return baseUrls;
+    return [preferredApiBaseUrl].concat(baseUrls.filter((item) => item !== preferredApiBaseUrl));
   }
 
   async function loadRemoteState() {
