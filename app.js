@@ -216,10 +216,65 @@
       });
     });
 
+    enableFilterBarDrag();
   }
 
   function enableFilterBarDrag() {
-    return;
+    const bar = dom.filterBar;
+    if (!bar) return;
+
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    let startScrollLeft = 0;
+    let suppressClick = false;
+
+    bar.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+
+      isDragging = false;
+      startX = event.clientX;
+      startY = event.clientY;
+      startScrollLeft = bar.scrollLeft;
+    });
+
+    bar.addEventListener("pointermove", (event) => {
+      const deltaX = event.clientX - startX;
+      const deltaY = event.clientY - startY;
+
+      if (!isDragging) {
+        if (Math.abs(deltaX) <= 6 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+        isDragging = true;
+        bar.classList.add("is-dragging");
+      }
+
+      bar.scrollLeft = startScrollLeft - deltaX;
+      event.preventDefault();
+    });
+
+    const stopDragging = () => {
+      if (!isDragging) return;
+
+      isDragging = false;
+      bar.classList.remove("is-dragging");
+      suppressClick = true;
+      window.setTimeout(() => {
+        suppressClick = false;
+      }, 180);
+    };
+
+    bar.addEventListener("pointerup", stopDragging);
+    bar.addEventListener("pointercancel", stopDragging);
+    bar.addEventListener("pointerleave", stopDragging);
+    bar.addEventListener(
+      "click",
+      (event) => {
+        if (!suppressClick) return;
+        event.preventDefault();
+        event.stopPropagation();
+      },
+      true,
+    );
   }
 
   async function initBackend() {
