@@ -971,6 +971,14 @@
     return `<a class="action-button" href="${getMaxHref(value)}" target="_blank" rel="noreferrer">${labels[type]}</a>`;
   }
 
+  function renderDetailItem(label, value) {
+    if (!value) return "";
+    return `<div class="detail-item">
+      <span class="detail-label">${escapeHtml(label)}</span>
+      <span class="detail-value">${escapeHtml(value)}</span>
+    </div>`;
+  }
+
   async function createProposal(target) {
     const own = getOwnPoint();
     if (!own) {
