@@ -1087,19 +1087,17 @@ button {
   place-items: center;
   width: 52px;
   height: 52px;
-  border: 2px solid rgba(255, 255, 255, 0.26);
+  border: 2px solid rgba(17, 20, 23, 0.16);
   border-radius: 999px;
-  background: rgba(229, 57, 53, 0.9);
-  color: #fff8f8;
+  background: rgba(255, 255, 255, 0.96);
+  color: #111417;
   box-shadow: var(--shadow);
   font-weight: 900;
   overflow: hidden;
 }
 
-:root[data-theme="light"] .cluster-marker {
-  border-color: rgba(17, 20, 23, 0.16);
-  background: rgba(255, 255, 255, 0.96);
-  color: #111417;
+:root:not([data-theme="light"]) .cluster-marker {
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .cluster-marker__count {

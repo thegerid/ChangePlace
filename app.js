@@ -151,8 +151,8 @@
     }).addTo(map);
 
     clusterLayer = L.markerClusterGroup({
-      animate: false,
-      animateAddingMarkers: false,
+      animate: true,
+      animateAddingMarkers: true,
       showCoverageOnHover: false,
       spiderfyOnMaxZoom: true,
       disableClusteringAtZoom: 15,
