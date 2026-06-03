@@ -440,6 +440,32 @@ button {
   color: #ffffff;
 }
 
+.filter-select {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.filter-select[hidden] {
+  display: none;
+}
+
+.filter-select span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.filter-select select {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: var(--text);
+  padding: 0 10px;
+}
+
 .owner-contacts-links {
   display: grid;
   grid-template-columns: 1fr 1fr;

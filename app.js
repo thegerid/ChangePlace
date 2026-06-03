@@ -119,6 +119,8 @@
     toast: document.getElementById("toast"),
     filterBar: document.querySelector(".filter-bar"),
     filters: Array.from(document.querySelectorAll("[data-filter]")),
+    logisticCenterFilterField: document.getElementById("logisticCenterFilterField"),
+    logisticCenterFilterSelect: document.getElementById("logisticCenterFilterSelect"),
   };
 
   let state = loadState();
@@ -127,6 +129,7 @@
   let clusterLayer;
   let markerRegistry = new Map();
   let activeFilter = "all";
+  let activeLogisticCenterFilter = "";
   let pendingLatLng = null;
   let moveMode = false;
   let toastTimer = 0;
@@ -189,6 +192,7 @@
     map.addLayer(clusterLayer);
 
     map.on("click", handleMapClick);
+    map.on("moveend zoomend", syncContextFilters);
     bindEvents();
     refresh();
     tryUseGrantedGeolocation();
@@ -235,6 +239,12 @@
         refreshMarkers();
       });
     });
+    if (dom.logisticCenterFilterSelect) {
+      dom.logisticCenterFilterSelect.addEventListener("change", () => {
+        activeLogisticCenterFilter = dom.logisticCenterFilterSelect.value;
+        refreshMarkers();
+      });
+    }
 
     enableFilterBarDrag();
   }
@@ -1248,7 +1258,36 @@
     dom.proposalBadge.hidden = pendingIncoming === 0;
     dom.proposalBadge.textContent = String(pendingIncoming);
 
+    syncContextFilters();
     refreshMarkers();
+  }
+
+  function syncContextFilters() {
+    if (!dom.logisticCenterFilterField || !dom.logisticCenterFilterSelect || !map) return;
+
+    const region = getLogisticCenterRegion(map.getCenter());
+    if (!region) {
+      activeLogisticCenterFilter = "";
+      dom.logisticCenterFilterSelect.innerHTML = '<option value="">Все логистические центры</option>';
+      dom.logisticCenterFilterSelect.value = "";
+      dom.logisticCenterFilterField.hidden = true;
+      return;
+    }
+
+    if (activeLogisticCenterFilter && !region.options.includes(activeLogisticCenterFilter)) {
+      activeLogisticCenterFilter = "";
+    }
+
+    dom.logisticCenterFilterSelect.innerHTML = ['<option value="">Все логистические центры</option>']
+      .concat(
+        region.options.map(
+          (option) =>
+            `<option value="${escapeAttr(option)}" ${activeLogisticCenterFilter === option ? "selected" : ""}>${escapeHtml(option)}</option>`,
+        ),
+      )
+      .join("");
+    dom.logisticCenterFilterSelect.value = activeLogisticCenterFilter;
+    dom.logisticCenterFilterField.hidden = false;
   }
 
   function refreshMarkers() {
@@ -1318,7 +1357,9 @@
   function getVisiblePoints() {
     return state.points.filter((point) => {
       if (point.cityId !== state.cityId) return false;
-      return activeFilter === "all" || point.status === activeFilter;
+      if (activeFilter !== "all" && point.status !== activeFilter) return false;
+      if (activeLogisticCenterFilter && point.logisticCenter !== activeLogisticCenterFilter) return false;
+      return true;
     });
   }
 
