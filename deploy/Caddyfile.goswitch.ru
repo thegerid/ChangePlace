@@ -1,0 +1,3 @@
+goswitch.ru, www.goswitch.ru {
+	reverse_proxy 127.0.0.1:4173
+}

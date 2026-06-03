@@ -1,4 +1,4 @@
-const CACHE_NAME = "changeplace-pwa-v38";
+const CACHE_NAME = "changeplace-pwa-v39";
 const SHELL_ASSETS = [
   "./",
   "./index.html",
@@ -6,6 +6,16 @@ const SHELL_ASSETS = [
   "./app.js",
   "./manifest.webmanifest",
   "./assets/icon.svg",
+  "./assets/vendor/leaflet/leaflet.css",
+  "./assets/vendor/leaflet/leaflet.js",
+  "./assets/vendor/leaflet/layers.png",
+  "./assets/vendor/leaflet/layers-2x.png",
+  "./assets/vendor/leaflet/marker-icon.png",
+  "./assets/vendor/leaflet/marker-icon-2x.png",
+  "./assets/vendor/leaflet/marker-shadow.png",
+  "./assets/vendor/leaflet-markercluster/MarkerCluster.css",
+  "./assets/vendor/leaflet-markercluster/MarkerCluster.Default.css",
+  "./assets/vendor/leaflet-markercluster/leaflet.markercluster.js",
 ];
 
 self.addEventListener("install", (event) => {
@@ -38,8 +48,6 @@ self.addEventListener("fetch", (event) => {
             response.ok &&
             !request.url.endsWith("/config.js") &&
             (request.url.startsWith(self.location.origin) ||
-              request.url.includes("unpkg.com") ||
-              request.url.includes("jsdelivr.net") ||
               request.url.includes("cartocdn.com"));
 
           if (shouldCache) {

@@ -1,31 +1,51 @@
-# ChangePlace backend on Ubuntu VPS
+# ChangePlace deployment on Ubuntu VPS
 
-Target scheme:
+Target production scheme:
 
 ```text
-https://goswitch.ru       -> GitHub Pages frontend
-https://130.49.172.96.sslip.io -> Ubuntu VPS backend
+https://goswitch.ru        -> frontend
+https://www.goswitch.ru    -> frontend
+https://goswitch.ru/api/*  -> backend API
 ```
 
-`sslip.io` already resolves to the server IP, so a temporary HTTPS domain works immediately without DNS changes.
+One domain, one server, one TLS certificate chain. No `nip.io`, `sslip.io`, GitHub Pages runtime, or cross-domain API in the target production path.
 
-## 2. Copy project to server
+## DNS
 
-Backend files required on the server:
+Required records:
 
-- `server.mjs`
-- `package.json`
-- `package-lock.json`
-- `config.js` is not required for the backend
-- `data/` directory
+```text
+A     @      130.49.172.96
+A     www    130.49.172.96
+```
 
-Recommended target path:
+If `www` must remain a CNAME, point it to `goswitch.ru` after the root domain already resolves to the VPS.
+
+Remove GitHub Pages records before the final cutover.
+
+## Server layout
+
+Application root:
 
 ```text
 /opt/changeplace
 ```
 
-## 3. Install runtime
+Expected contents:
+
+- `index.html`
+- `app.js`
+- `styles.css`
+- `config.js`
+- `manifest.webmanifest`
+- `service-worker.js`
+- `assets/`
+- `server.mjs`
+- `package.json`
+- `package-lock.json`
+- `data/`
+
+## Runtime
 
 Ubuntu 22.04:
 
@@ -38,7 +58,7 @@ node -v
 caddy version
 ```
 
-## 4. Create app user and folders
+## App user and folders
 
 ```bash
 useradd --system --home /opt/changeplace --shell /usr/sbin/nologin changeplace || true
@@ -47,7 +67,7 @@ chown -R changeplace:www-data /opt/changeplace
 chmod 775 /opt/changeplace/data
 ```
 
-## 5. systemd
+## systemd
 
 Copy `deploy/changeplace-api.service` to:
 
@@ -63,12 +83,12 @@ systemctl enable --now changeplace-api
 systemctl status changeplace-api
 ```
 
-## 6. Caddy
+## Caddy
 
-Server `Caddyfile`:
+Final production config:
 
 ```text
-130.49.172.96.sslip.io {
+goswitch.ru, www.goswitch.ru {
 	reverse_proxy 127.0.0.1:4173
 }
 ```
@@ -82,24 +102,26 @@ Place it in:
 Then:
 
 ```bash
+caddy validate --config /etc/caddy/Caddyfile
 systemctl restart caddy
 systemctl status caddy
 ```
 
-## 7. Verify
+## Verify
 
 ```bash
 curl http://127.0.0.1:4173/api/health
-curl https://130.49.172.96.sslip.io/api/health
+curl https://goswitch.ru/api/health
+curl -I https://goswitch.ru/
 ```
 
-Expected response:
+Expected API response:
 
 ```json
 {"ok":true,"mode":"local"}
 ```
 
-## 8. Firewall
+## Firewall
 
 If `ufw` is enabled:
 
@@ -110,10 +132,9 @@ ufw allow 443/tcp
 ufw reload
 ```
 
-## 9. Switch to project subdomain later
+## Operational notes
 
-When `api.goswitch.ru` is created in DNS:
-
-1. replace `130.49.172.96.sslip.io` with `api.goswitch.ru` in `Caddyfile`
-2. replace the public backend URL in `config.js`
-3. restart `caddy`
+- `config.js` already prefers same-origin `"/api"` and falls back only during the migration period.
+- The frontend bundle is self-hosted from the same server.
+- There are no WebSocket or SSE connections in the current implementation.
+- Remaining external runtime dependency: map tile requests to `basemaps.cartocdn.com`.
