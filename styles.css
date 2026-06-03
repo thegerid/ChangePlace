@@ -720,6 +720,14 @@ button {
   font-size: 15px;
 }
 
+.detail-item:has(.detail-value:empty) {
+  display: none;
+}
+
+.detail-grid:not(:has(.detail-item:not(:has(.detail-value:empty)))) {
+  display: none;
+}
+
 .button-grid {
   grid-template-columns: 1fr;
   margin-top: 16px;

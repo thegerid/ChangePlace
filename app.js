@@ -855,6 +855,13 @@
     const status = statuses[point.status] || statuses.search;
     const distance = getDistanceLabel(point);
     const openProposal = getActiveProposalWith(point.id);
+    const detailItems = [
+      renderDetailItem("Логистический центр", point.logisticCenter),
+      renderDetailItem("Телефон", point.phone),
+      renderDetailItem("Telegram", point.telegram),
+      renderDetailItem("MAX", point.max),
+      renderDetailItem("Комментарий", point.comment),
+    ].filter(Boolean);
 
     dom.sheetContent.innerHTML = `
       <h2 class="sheet-title">${escapeHtml(point.name)}</h2>
@@ -879,19 +886,19 @@
         }
         <div class="detail-item">
           <span class="detail-label">Телефон</span>
-          <span class="detail-value">${escapeHtml(point.phone || "Не указан")}</span>
+          <span class="detail-value">${escapeHtml(point.phone || "")}</span>
         </div>
         <div class="detail-item">
           <span class="detail-label">Telegram</span>
-          <span class="detail-value">${escapeHtml(point.telegram || "Не указан")}</span>
+          <span class="detail-value">${escapeHtml(point.telegram || "")}</span>
         </div>
         <div class="detail-item">
           <span class="detail-label">MAX</span>
-          <span class="detail-value">${escapeHtml(point.max || "Не указан")}</span>
+          <span class="detail-value">${escapeHtml(point.max || "")}</span>
         </div>
         <div class="detail-item">
           <span class="detail-label">Комментарий</span>
-          <span class="detail-value">${escapeHtml(point.comment || "Без комментария")}</span>
+          <span class="detail-value">${escapeHtml(point.comment || "")}</span>
         </div>
       </div>
       <div class="button-grid">
@@ -903,7 +910,6 @@
             ? '<button class="action-button" id="moveOwnPoint" type="button">Изменить место</button>'
             : '<button class="action-button warn" id="offerExchange" type="button">Предложить обмен</button>'
         }
-        <button class="action-button" id="showStatus" type="button">Посмотреть статус</button>
         ${
           isOwn
             ? '<button class="action-button" id="editOwn" type="button">Изменить данные</button><button class="action-button danger" id="deletePoint" type="button">Удалить</button>'
@@ -914,10 +920,6 @@
 
     const offerExchange = document.getElementById("offerExchange");
     if (offerExchange) offerExchange.addEventListener("click", () => createProposal(point));
-
-    document.getElementById("showStatus").addEventListener("click", () => {
-      showToast(`Статус: ${status.label}. Обновлен сегодня.`);
-    });
 
     const editOwn = document.getElementById("editOwn");
     if (editOwn) editOwn.addEventListener("click", () => openForm(point));
@@ -945,7 +947,7 @@
     };
 
     if (!value) {
-      return `<button class="action-button is-disabled" type="button" disabled>${labels[type]}</button>`;
+      return "";
     }
 
     if (type === "phone") {
