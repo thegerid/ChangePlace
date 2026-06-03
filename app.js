@@ -105,6 +105,7 @@
   let map;
   let baseTileLayer;
   let clusterLayer;
+  let markerRegistry = new Map();
   let activeFilter = "all";
   let pendingLatLng = null;
   let moveMode = false;
@@ -168,7 +169,6 @@
     map.addLayer(clusterLayer);
 
     map.on("click", handleMapClick);
-    map.on("zoomend", handleMapZoomEnd);
     bindEvents();
     refresh();
     tryUseGrantedGeolocation();
@@ -1202,25 +1202,57 @@
     refreshMarkers();
   }
 
-  function handleMapZoomEnd() {
+  function refreshMarkers() {
     if (!clusterLayer) return;
-    window.requestAnimationFrame(() => {
-      refreshMarkers();
+    const visiblePoints = getVisiblePoints();
+    const visibleIds = new Set(visiblePoints.map((point) => point.id));
+
+    visiblePoints.forEach((point) => {
+      const signature = getMarkerSignature(point);
+      let marker = markerRegistry.get(point.id);
+
+      if (!marker || marker.__cpSignature !== signature) {
+        if (marker) {
+          clusterLayer.removeLayer(marker);
+        }
+
+        marker = buildPointMarker(point);
+        marker.__cpSignature = signature;
+        markerRegistry.set(point.id, marker);
+        clusterLayer.addLayer(marker);
+        return;
+      }
+
+      if (!clusterLayer.hasLayer(marker)) {
+        clusterLayer.addLayer(marker);
+      }
+    });
+
+    Array.from(markerRegistry.entries()).forEach(([pointId, marker]) => {
+      if (visibleIds.has(pointId)) return;
+      clusterLayer.removeLayer(marker);
+      markerRegistry.delete(pointId);
     });
   }
 
-  function refreshMarkers() {
-    if (!clusterLayer) return;
-    clusterLayer.clearLayers();
-
-    getVisiblePoints().forEach((point) => {
-      const marker = L.marker([point.lat, point.lng], {
-        icon: createPersonIcon(point),
-        title: point.name,
-      });
-      marker.on("click", () => openCard(point.id));
-      clusterLayer.addLayer(marker);
+  function buildPointMarker(point) {
+    const marker = L.marker([point.lat, point.lng], {
+      icon: createPersonIcon(point),
+      title: point.name,
     });
+    marker.on("click", () => openCard(point.id));
+    return marker;
+  }
+
+  function getMarkerSignature(point) {
+    return [
+      point.id,
+      point.name,
+      point.status,
+      point.lat,
+      point.lng,
+      point.id === state.ownPointId ? "own" : "other",
+    ].join("|");
   }
 
   function createPersonIcon(point) {
