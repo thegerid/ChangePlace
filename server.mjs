@@ -341,9 +341,10 @@ async function withStore(handler) {
 async function readStore() {
   try {
     const raw = await readFile(DATA_FILE, "utf8");
+    if (!raw.trim()) return normalizeStore({});
     return normalizeStore(JSON.parse(raw));
   } catch (error) {
-    if (error.code !== "ENOENT") throw error;
+    if (error.code !== "ENOENT" && error.name !== "SyntaxError") throw error;
     return normalizeStore({});
   }
 }
