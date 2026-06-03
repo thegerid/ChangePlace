@@ -1,0 +1,19 @@
+[Unit]
+Description=ChangePlace API server
+After=network.target
+
+[Service]
+Type=simple
+User=changeplace
+Group=www-data
+WorkingDirectory=/opt/changeplace
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=4173
+ExecStart=/usr/bin/node /opt/changeplace/server.mjs
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target
