@@ -10,6 +10,26 @@ const HOST = process.env.HOST || "0.0.0.0";
 const PORT = Number(process.env.PORT || 4173);
 const MAX_BODY_BYTES = 1024 * 1024;
 const ALLOWED_STATUSES = new Set(["search", "agreed", "unavailable"]);
+const LOGISTIC_CENTER_REGIONS = [
+  {
+    id: "spb",
+    label: "Санкт-Петербург",
+    bounds: [
+      [59.75, 29.55],
+      [60.15, 30.75],
+    ],
+    options: ["Ломоносовская", "Озерки"],
+  },
+  {
+    id: "msk",
+    label: "Москва",
+    bounds: [
+      [55.45, 36.8],
+      [56.05, 37.95],
+    ],
+    options: ["Алтуфьево", "Ленинский", "Стахановская", "ЦСКА"],
+  },
+];
 const MODERATED_FIELDS = ["full_name", "telegram", "max", "preferred_location", "comment"];
 const FORBIDDEN_TEXT_PATTERNS = [
   /ху[йеяию]/i,
@@ -159,6 +179,7 @@ async function upsertPoint(body) {
   const telegram = normalizeOptionalText(body.telegram);
   const max = normalizeOptionalText(body.max);
   const comment = normalizeOptionalText(body.comment);
+  const logisticCenter = normalizeOptionalText(body.logistic_center);
 
   validatePointPayload({
     fullName,
@@ -167,7 +188,11 @@ async function upsertPoint(body) {
     telegram,
     max,
     comment,
+    logisticCenter,
+    lat,
+    lng,
   });
+  validateLogisticCenter({ logisticCenter, lat, lng });
 
   return withStore((store, context) => {
     const requestedId = normalizeOptionalText(body.point_id);
@@ -200,6 +225,7 @@ async function upsertPoint(body) {
       telegram,
       max,
       preferredLocation,
+      logisticCenter,
       comment,
       status,
       lat,
@@ -211,6 +237,17 @@ async function upsertPoint(body) {
     context.changed = true;
     return { point: publicPoint(point, deviceId) };
   });
+
+  const logisticCenterRegion = getLogisticCenterRegion(payload.lat, payload.lng);
+  if (!logisticCenterRegion) return;
+
+  if (!payload.logisticCenter) {
+    throw httpError(400, `РџРѕР»Рµ Р›РѕРіРёСЃС‚РёС‡РµСЃРєРёР№ С†РµРЅС‚СЂ РѕР±СЏР·Р°С‚РµР»СЊРЅРѕ РґР»СЏ ${logisticCenterRegion.label}.`);
+  }
+
+  if (!logisticCenterRegion.options.includes(payload.logisticCenter)) {
+    throw httpError(400, "РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ Р»РѕРіРёСЃС‚РёС‡РµСЃРєРёР№ С†РµРЅС‚СЂ.");
+  }
 }
 
 async function deletePoint(pointId, body) {
@@ -348,6 +385,7 @@ function publicPoint(point, deviceId) {
     telegram: point.telegram || "",
     max: point.max || "",
     preferred_location: point.preferredLocation,
+    logistic_center: point.logisticCenter || "",
     comment: point.comment || "",
     status: point.status,
     lat: point.lat,
@@ -612,6 +650,32 @@ function validatePointPayload(payload) {
       throw httpError(400, "Недопустимое содержание: уберите мат или оскорбительные выражения.");
     }
   });
+}
+
+function getLogisticCenterRegion(lat, lng) {
+  const pointLat = Number(lat);
+  const pointLng = Number(lng);
+  if (!Number.isFinite(pointLat) || !Number.isFinite(pointLng)) return null;
+
+  return (
+    LOGISTIC_CENTER_REGIONS.find((region) => {
+      const [[minLat, minLng], [maxLat, maxLng]] = region.bounds;
+      return pointLat >= minLat && pointLat <= maxLat && pointLng >= minLng && pointLng <= maxLng;
+    }) || null
+  );
+}
+
+function validateLogisticCenter({ logisticCenter, lat, lng }) {
+  const logisticCenterRegion = getLogisticCenterRegion(lat, lng);
+  if (!logisticCenterRegion) return;
+
+  if (!logisticCenter) {
+    throw httpError(400, `РџРѕР»Рµ Р›РѕРіРёСЃС‚РёС‡РµСЃРєРёР№ С†РµРЅС‚СЂ РѕР±СЏР·Р°С‚РµР»СЊРЅРѕ РґР»СЏ ${logisticCenterRegion.label}.`);
+  }
+
+  if (!logisticCenterRegion.options.includes(logisticCenter)) {
+    throw httpError(400, "РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ Р»РѕРіРёСЃС‚РёС‡РµСЃРєРёР№ С†РµРЅС‚СЂ.");
+  }
 }
 
 function isValidFullName(value) {

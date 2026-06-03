@@ -45,6 +45,26 @@
     accepted: "Принято",
     declined: "Отказ",
   };
+  const logisticCenterRegions = [
+    {
+      id: "spb",
+      label: "Санкт-Петербург",
+      bounds: [
+        [59.75, 29.55],
+        [60.15, 30.75],
+      ],
+      options: ["Ломоносовская", "Озерки"],
+    },
+    {
+      id: "msk",
+      label: "Москва",
+      bounds: [
+        [55.45, 36.8],
+        [56.05, 37.95],
+      ],
+      options: ["Алтуфьево", "Ленинский", "Стахановская", "ЦСКА"],
+    },
+  ];
   const MODERATED_TEXT_FIELDS = ["name", "telegram", "max", "location", "comment"];
   const FORBIDDEN_TEXT_PATTERNS = [
     /ху[йеяию]/i,
@@ -394,6 +414,7 @@
       telegram: row.telegram || "",
       max: row.max || "",
       location: row.preferred_location,
+      logisticCenter: row.logistic_center || "",
       comment: row.comment || "",
       status: row.status,
       lat: row.lat,
@@ -552,6 +573,24 @@
     const latLng = pendingLatLng || (own ? L.latLng(own.lat, own.lng) : map.getCenter());
     const isEdit = Boolean(own);
     const phoneValue = formatPhoneValue(own?.phone || "+7 ");
+    const logisticCenterRegion = getLogisticCenterRegion(latLng);
+    const logisticCenterField = logisticCenterRegion
+      ? `
+        <label class="field" data-field="logisticCenter">
+          <span>Логистический центр *</span>
+          <select name="logisticCenter">
+            <option value="">Выберите ЛЦ</option>
+            ${logisticCenterRegion.options
+              .map(
+                (option) =>
+                  `<option value="${escapeAttr(option)}" ${own?.logisticCenter === option ? "selected" : ""}>${escapeHtml(option)}</option>`,
+              )
+              .join("")}
+          </select>
+          <small class="field-error">Выберите логистический центр для ${logisticCenterRegion.label}.</small>
+        </label>
+      `
+      : "";
 
     dom.sheetContent.innerHTML = `
       <h2 class="sheet-title">${isEdit ? "Моя точка" : "Добавить себя на карту"}</h2>
@@ -587,6 +626,7 @@
           <input name="location" autocomplete="off" placeholder="Например, Петроградка или юг города" value="${escapeAttr(own?.location || "")}" />
           <small class="field-error">Укажите желаемую локацию.</small>
         </label>
+        ${logisticCenterField}
         <label class="field" data-field="status">
           <span>Статус *</span>
           <select name="status">
@@ -651,6 +691,10 @@
     const form = event.currentTarget;
     const formData = new FormData(form);
     const required = ["name", "location", "status"];
+    const pointLat = Number(formData.get("lat"));
+    const pointLng = Number(formData.get("lng"));
+    const logisticCenterRegion = getLogisticCenterRegion({ lat: pointLat, lng: pointLng });
+    if (logisticCenterRegion) required.push("logisticCenter");
     let firstInvalid = null;
     let hasMissingRequired = false;
     let hasFormatError = false;
@@ -747,10 +791,11 @@
       telegram: String(formData.get("telegram") || "").trim(),
       max: String(formData.get("max") || "").trim(),
       location: normalizeSpaces(formData.get("location")),
+      logisticCenter: logisticCenterRegion ? String(formData.get("logisticCenter") || "").trim() : "",
       status: String(formData.get("status")),
       comment: normalizeSpaces(formData.get("comment")),
-      lat: Number(formData.get("lat")),
-      lng: Number(formData.get("lng")),
+      lat: pointLat,
+      lng: pointLng,
       updatedAt: new Date().toISOString(),
     };
     saveLastLocation(L.latLng(point.lat, point.lng), 14);
@@ -789,6 +834,7 @@
       telegram: point.telegram || null,
       max: point.max || null,
       preferred_location: point.location,
+      logistic_center: point.logisticCenter || null,
       comment: point.comment || null,
       status: point.status,
       lat: point.lat,
@@ -823,6 +869,14 @@
           : ""
       }
       <div class="detail-grid">
+        ${
+          point.logisticCenter
+            ? `<div class="detail-item">
+          <span class="detail-label">Логистический центр</span>
+          <span class="detail-value">${escapeHtml(point.logisticCenter)}</span>
+        </div>`
+            : ""
+        }
         <div class="detail-item">
           <span class="detail-label">Телефон</span>
           <span class="detail-value">${escapeHtml(point.phone || "Не указан")}</span>
@@ -1453,8 +1507,23 @@
       phone: point.phone || "",
       telegram: point.telegram || point.messenger || "",
       max: point.max || "",
+      logisticCenter: point.logisticCenter || "",
       status: statuses[point.status] ? point.status : "unavailable",
     };
+  }
+
+  function getLogisticCenterRegion(point) {
+    if (!point) return null;
+
+    const lat = Number(point.lat);
+    const lng = Number(point.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+    return (
+      logisticCenterRegions.find((region) =>
+        L.latLngBounds(region.bounds).contains(L.latLng(lat, lng)),
+      ) || null
+    );
   }
 
   function updateCountdown() {
