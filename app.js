@@ -150,6 +150,8 @@
     }).addTo(map);
 
     clusterLayer = L.markerClusterGroup({
+      animate: false,
+      animateAddingMarkers: false,
       showCoverageOnHover: false,
       spiderfyOnMaxZoom: true,
       disableClusteringAtZoom: 15,
@@ -166,6 +168,7 @@
     map.addLayer(clusterLayer);
 
     map.on("click", handleMapClick);
+    map.on("zoomend", handleMapZoomEnd);
     bindEvents();
     refresh();
     tryUseGrantedGeolocation();
@@ -1197,6 +1200,13 @@
     dom.proposalBadge.textContent = String(pendingIncoming);
 
     refreshMarkers();
+  }
+
+  function handleMapZoomEnd() {
+    if (!clusterLayer) return;
+    window.requestAnimationFrame(() => {
+      refreshMarkers();
+    });
   }
 
   function refreshMarkers() {
