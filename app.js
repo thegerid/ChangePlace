@@ -216,72 +216,10 @@
       });
     });
 
-    enableFilterBarDrag();
   }
 
   function enableFilterBarDrag() {
-    const bar = dom.filterBar;
-    if (!bar) return;
-
-    let isDragging = false;
-    let startX = 0;
-    let startY = 0;
-    let startScrollLeft = 0;
-    let moved = false;
-    let suppressClick = false;
-
-    bar.addEventListener("pointerdown", (event) => {
-      if (event.pointerType === "mouse" && event.button !== 0) return;
-
-      isDragging = true;
-      moved = false;
-      startX = event.clientX;
-      startY = event.clientY;
-      startScrollLeft = bar.scrollLeft;
-      bar.classList.add("is-dragging");
-      bar.setPointerCapture(event.pointerId);
-    });
-
-    bar.addEventListener("pointermove", (event) => {
-      if (!isDragging) return;
-
-      const deltaX = event.clientX - startX;
-      const deltaY = event.clientY - startY;
-      if (Math.abs(deltaX) <= 4 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
-
-      moved = true;
-      bar.scrollLeft = startScrollLeft - deltaX;
-      event.preventDefault();
-    });
-
-    const stopDragging = (event) => {
-      if (!isDragging) return;
-
-      isDragging = false;
-      bar.classList.remove("is-dragging");
-      if (bar.hasPointerCapture(event.pointerId)) {
-        bar.releasePointerCapture(event.pointerId);
-      }
-
-      if (moved) {
-        suppressClick = true;
-        window.setTimeout(() => {
-          suppressClick = false;
-        }, 160);
-      }
-    };
-
-    bar.addEventListener("pointerup", stopDragging);
-    bar.addEventListener("pointercancel", stopDragging);
-    bar.addEventListener(
-      "click",
-      (event) => {
-        if (!suppressClick) return;
-        event.preventDefault();
-        event.stopPropagation();
-      },
-      true,
-    );
+    return;
   }
 
   async function initBackend() {
