@@ -1096,6 +1096,12 @@ button {
   overflow: hidden;
 }
 
+:root[data-theme="light"] .cluster-marker {
+  border-color: rgba(17, 20, 23, 0.16);
+  background: rgba(255, 255, 255, 0.96);
+  color: #111417;
+}
+
 .cluster-marker__count {
   display: grid;
   width: 100%;
@@ -1103,6 +1109,7 @@ button {
   place-items: center;
   font-size: 16px;
   line-height: 1;
+  color: inherit;
 }
 
 .leaflet-marker-icon {
