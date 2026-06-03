@@ -9,6 +9,6 @@
     /^172\.(1[6-9]|2\d|3[01])\./.test(host);
 
   window.CHANGEPLACE_CONFIG = {
-    apiBaseUrl: isLocalHost ? "" : "https://api.goswitch.ru",
+    apiBaseUrl: isLocalHost ? "" : "https://130.49.172.96.sslip.io",
   };
 })();

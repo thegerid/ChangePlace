@@ -4,16 +4,10 @@ Target scheme:
 
 ```text
 https://goswitch.ru       -> GitHub Pages frontend
-https://api.goswitch.ru   -> Ubuntu VPS backend
+https://130.49.172.96.sslip.io -> Ubuntu VPS backend
 ```
 
-## 1. DNS
-
-Create an `A` record:
-
-```text
-api.goswitch.ru -> 130.49.172.96
-```
+`sslip.io` already resolves to the server IP, so a temporary HTTPS domain works immediately without DNS changes.
 
 ## 2. Copy project to server
 
@@ -74,7 +68,7 @@ systemctl status changeplace-api
 Server `Caddyfile`:
 
 ```text
-api.goswitch.ru {
+130.49.172.96.sslip.io {
 	reverse_proxy 127.0.0.1:4173
 }
 ```
@@ -96,7 +90,7 @@ systemctl status caddy
 
 ```bash
 curl http://127.0.0.1:4173/api/health
-curl https://api.goswitch.ru/api/health
+curl https://130.49.172.96.sslip.io/api/health
 ```
 
 Expected response:
@@ -115,3 +109,11 @@ ufw allow 80/tcp
 ufw allow 443/tcp
 ufw reload
 ```
+
+## 9. Switch to project subdomain later
+
+When `api.goswitch.ru` is created in DNS:
+
+1. replace `130.49.172.96.sslip.io` with `api.goswitch.ru` in `Caddyfile`
+2. replace the public backend URL in `config.js`
+3. restart `caddy`

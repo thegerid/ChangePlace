@@ -46,10 +46,10 @@
 
 ```js
 // localhost / 192.168.x.x -> локальный same-origin API
-// goswitch.ru -> https://api.goswitch.ru
+// goswitch.ru -> временно https://130.49.172.96.sslip.io
 ```
 
-Для публичного фронта нужен backend-адрес `https://api.goswitch.ru`.
+Для публичного фронта сейчас используется backend-адрес `https://130.49.172.96.sslip.io`.
 
 ## Локальный запуск
 
@@ -75,23 +75,23 @@ Service worker и установка на главный экран работа
 https://goswitch.ru
   GitHub Pages: HTML/CSS/JS/PWA
 
-https://api.goswitch.ru
+https://130.49.172.96.sslip.io
   VPS: Node.js API + data/changeplace-data.json
 ```
 
-Node.js-сервер приложения слушает порт `4173`. Для HTTPS на поддомене `api.goswitch.ru` подготовлен `Caddyfile`:
+Node.js-сервер приложения слушает порт `4173`. Для HTTPS на временном домене по IP подготовлен `Caddyfile`:
 
 ```text
-api.goswitch.ru {
-  reverse_proxy 127.0.0.1:4173
+130.49.172.96.sslip.io {
+	reverse_proxy 127.0.0.1:4173
 }
 ```
 
 Чтобы backend стал доступен из интернета:
 
-1. В DNS добавить запись `A` для `api.goswitch.ru` на IP сервера.
-2. Развернуть backend на Ubuntu VPS.
-3. Поднять `systemd`-сервис для `server.mjs`.
-4. Настроить Caddy как reverse proxy на `127.0.0.1:4173`.
+1. Развернуть backend на Ubuntu VPS.
+2. Поднять `systemd`-сервис для `server.mjs`.
+3. Настроить Caddy как reverse proxy на `127.0.0.1:4173`.
+4. При появлении DNS-записи заменить `sslip.io` на `api.goswitch.ru`.
 
 Полная серверная инструкция: [deploy/SERVER_SETUP.md](/c:/Users/Selecty/Desktop/AI_Skills/ChangePlace/deploy/SERVER_SETUP.md)
