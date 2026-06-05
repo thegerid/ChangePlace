@@ -1,4 +1,4 @@
-const CACHE_NAME = "changeplace-pwa-v42";
+const CACHE_NAME = "changeplace-pwa-v43";
 const SHELL_ASSETS = [
   "./",
   "./index.html",
@@ -46,6 +46,23 @@ self.addEventListener("fetch", (event) => {
   const requestUrl = new URL(request.url);
   if (requestUrl.origin === self.location.origin && requestUrl.pathname.startsWith("/api/")) {
     event.respondWith(fetch(request));
+    return;
+  }
+
+  // Always prefer the network for navigations so users do not open an old app shell
+  // after a deploy and miss recently added UI elements until manual refresh.
+  if (request.mode === "navigate") {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put("./index.html", clone));
+          }
+          return response;
+        })
+        .catch(async () => (await caches.match(request)) || caches.match("./index.html")),
+    );
     return;
   }
 
