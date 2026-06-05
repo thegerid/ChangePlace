@@ -1,4 +1,4 @@
-const CACHE_NAME = "changeplace-pwa-v39";
+const CACHE_NAME = "changeplace-pwa-v42";
 const SHELL_ASSETS = [
   "./",
   "./index.html",
@@ -6,6 +6,11 @@ const SHELL_ASSETS = [
   "./app.js",
   "./manifest.webmanifest",
   "./assets/icon.svg",
+  "./assets/avatars/cat-1.svg",
+  "./assets/avatars/cat-2.svg",
+  "./assets/avatars/cat-3.svg",
+  "./assets/avatars/cat-4.svg",
+  "./assets/avatars/cat-5.svg",
   "./assets/vendor/leaflet/leaflet.css",
   "./assets/vendor/leaflet/leaflet.js",
   "./assets/vendor/leaflet/layers.png",
@@ -37,6 +42,12 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
+
+  const requestUrl = new URL(request.url);
+  if (requestUrl.origin === self.location.origin && requestUrl.pathname.startsWith("/api/")) {
+    event.respondWith(fetch(request));
+    return;
+  }
 
   event.respondWith(
     caches.match(request).then((cached) => {
