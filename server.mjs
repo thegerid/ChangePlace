@@ -864,15 +864,39 @@ async function serveStatic(response, pathname) {
   try {
     const fileStat = await stat(filePath);
     if (!fileStat.isFile()) throw httpError(404, "Not found");
-    response.writeHead(200, {
+    const cacheControl = getStaticCacheControl(filePath);
+    const headers = {
       "Content-Type": getContentType(extname(filePath)),
-      "Cache-Control": filePath.endsWith("config.js") ? "no-store" : "public, max-age=300",
-    });
+      "Cache-Control": cacheControl,
+    };
+    if (cacheControl === "no-store, no-cache, must-revalidate, max-age=0") {
+      headers.Pragma = "no-cache";
+      headers.Expires = "0";
+    }
+    response.writeHead(200, headers);
     response.end(await readFile(filePath));
   } catch (error) {
     if (error.status) throw error;
     throw httpError(404, "Not found");
   }
+}
+
+function getStaticCacheControl(filePath) {
+  const normalized = filePath.replace(/\\/g, "/");
+  const noStoreAssets = [
+    "/index.html",
+    "/app.js",
+    "/styles.css",
+    "/config.js",
+    "/service-worker.js",
+    "/manifest.webmanifest",
+  ];
+
+  if (noStoreAssets.some((suffix) => normalized.endsWith(suffix))) {
+    return "no-store, no-cache, must-revalidate, max-age=0";
+  }
+
+  return "public, max-age=300";
 }
 
 function sendJson(request, response, status, payload, extraHeaders = {}) {
