@@ -48,12 +48,26 @@
       <main id="map" aria-label="Интерактивная карта сотрудников"></main>
 
       <header class="app-header" aria-label="Панель сервиса обмена районами">
-        <div class="brand">
-          <span class="brand-mark" aria-hidden="true">А</span>
-          <div class="brand-copy">
-            <strong>Альфа-Банк</strong>
-            <span>Сервис обмена районами</span>
-          </div>
+        <div class="brand" id="brandBlock">
+          <button class="header-menu-button" id="sideMenuToggle" type="button" aria-label="Открыть боковое меню">
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+          </button>
+          <button class="brand-avatar" id="brandAvatarButton" type="button" aria-label="Выбрать аватар">
+            <img class="brand-avatar-image" id="brandAvatarImage" src="./assets/avatars/cat-1.svg" alt="" hidden />
+            <span class="brand-mark" id="brandMark" aria-hidden="true">А</span>
+          </button>
+          <button
+            class="brand-copy brand-copy-button"
+            id="brandProfileButton"
+            type="button"
+            aria-label="Открыть личный кабинет"
+          >
+            <strong id="brandTitle">Альфа-Банк</strong>
+            <span id="brandSubtitle">Сервис обмена районами</span>
+          </button>
+          <div class="avatar-menu" id="avatarMenu" hidden></div>
         </div>
 
         <div class="header-controls">
@@ -61,7 +75,13 @@
             <span>очистка</span>
             <strong id="cleanupCountdown">--:--</strong>
           </div>
-          <button class="theme-toggle" id="themeToggle" type="button" aria-label="Включить светлую тему" aria-pressed="false">
+          <button
+            class="theme-toggle"
+            id="themeToggle"
+            type="button"
+            aria-label="Включить светлую тему"
+            aria-pressed="false"
+          >
             <span class="theme-icon theme-icon-sun" aria-hidden="true"></span>
             <span class="theme-icon theme-icon-moon" aria-hidden="true"></span>
           </button>
@@ -79,6 +99,95 @@
           </select>
         </label>
       </header>
+
+      <aside class="side-menu" id="sideMenu" aria-hidden="true">
+        <div class="side-menu-backdrop" data-side-menu-close="true"></div>
+        <div class="side-menu-panel" role="dialog" aria-modal="true" aria-label="Боковое меню">
+          <div class="side-menu-head">
+            <button class="side-menu-icon-btn" id="sideMenuClose" type="button" aria-label="Закрыть меню">×</button>
+            <div class="side-menu-logo" aria-hidden="true">
+              <span class="side-menu-logo-sfa">SFA</span>
+              <span>go</span>
+            </div>
+            <button class="side-menu-icon-btn" type="button" data-side-menu-action="settings" aria-label="Настройки">
+              <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+                <path d="M8.77 1.93c.48-1.04 1.98-1.04 2.46 0l.45.97c.21.45.69.7 1.17.61l1.05-.18c1.12-.2 2.03.7 1.83 1.82l-.19 1.05c-.08.49.16.96.61 1.17l.97.45c1.04.48 1.04 1.98 0 2.46l-.97.45c-.45.21-.69.69-.61 1.17l.19 1.05c.2 1.12-.71 2.03-1.83 1.83l-1.05-.19a1.06 1.06 0 0 0-1.17.61l-.45.97c-.48 1.04-1.98 1.04-2.46 0l-.45-.97a1.06 1.06 0 0 0-1.17-.61l-1.05.19c-1.12.2-2.03-.71-1.83-1.83l.19-1.05a1.06 1.06 0 0 0-.61-1.17l-.97-.45c-1.04-.48-1.04-1.98 0-2.46l.97-.45c.45-.21.69-.68.61-1.17l-.19-1.05c-.2-1.12.71-2.02 1.83-1.82l1.05.18c.49.09.96-.16 1.17-.61l.45-.97ZM10 13.15A3.15 3.15 0 1 0 10 6.85a3.15 3.15 0 0 0 0 6.3Z" fill="currentColor"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="side-menu-body">
+            <div class="side-menu-card">
+              <button class="side-menu-nav-btn" type="button" data-side-menu-action="meetings">
+                <span>Встречи</span>
+                <span class="side-menu-arrow" aria-hidden="true">›</span>
+              </button>
+              <button class="side-menu-nav-btn" type="button" data-side-menu-action="acts">
+                <span>Акты</span>
+                <span class="side-menu-arrow" aria-hidden="true">›</span>
+              </button>
+              <button class="side-menu-nav-btn" type="button" data-side-menu-action="district-swap">
+                <span>Поменяться районами</span>
+                <span class="side-menu-arrow" aria-hidden="true">›</span>
+              </button>
+              <button class="side-menu-nav-btn" type="button" data-side-menu-action="cross-sales">
+                <span>Кросс-продажи</span>
+                <span class="side-menu-arrow" aria-hidden="true">›</span>
+              </button>
+              <button class="side-menu-nav-btn" type="button" data-side-menu-action="motivation">
+                <span>Мотивация</span>
+                <span class="side-menu-arrow" aria-hidden="true">›</span>
+              </button>
+              <button class="side-menu-nav-btn" type="button" data-side-menu-action="recommendations">
+                <span>Рекомендации</span>
+                <span class="side-menu-arrow" aria-hidden="true">›</span>
+              </button>
+              <button class="side-menu-nav-btn" type="button" data-side-menu-action="trainers">
+                <span>Тренажеры</span>
+                <span class="side-menu-arrow" aria-hidden="true">›</span>
+              </button>
+              <button class="side-menu-nav-btn" type="button" data-side-menu-action="notifications">
+                <span>Уведомления</span>
+                <span class="side-menu-arrow" aria-hidden="true">›</span>
+              </button>
+            </div>
+
+            <div class="side-menu-card side-menu-promo">
+              <div class="side-menu-promo-head">
+                <div class="side-menu-promo-icon" aria-hidden="true">🍉</div>
+                <div>
+                  <p class="side-menu-promo-title">Предложите Апельсин</p>
+                  <p class="side-menu-promo-sub">Друзьям или родственникам клиента</p>
+                </div>
+              </div>
+              <button class="side-menu-promo-btn" type="button" data-side-menu-action="orange-qr">QR-код с заявкой</button>
+            </div>
+
+            <div class="side-menu-card">
+              <button class="side-menu-simple-btn" type="button" data-side-menu-action="no-request">Выдать без заявки</button>
+              <button class="side-menu-simple-btn" type="button" data-side-menu-action="scan-cards">Сканировать карты</button>
+              <button class="side-menu-simple-btn" type="button" data-side-menu-action="scan-qr">Сканировать QR-код</button>
+              <button class="side-menu-simple-btn" type="button" data-side-menu-action="appearance-check">Проверка внешнего вида</button>
+            </div>
+
+            <div class="side-menu-card side-menu-promo">
+              <div class="side-menu-promo-head">
+                <div class="side-menu-promo-icon" aria-hidden="true">🚀</div>
+                <div>
+                  <p class="side-menu-promo-title">Удобнее в приложении!</p>
+                  <p class="side-menu-promo-sub">Офлайн режим, меньше трафика</p>
+                </div>
+              </div>
+              <button class="side-menu-promo-btn" type="button" data-side-menu-action="install">Установить</button>
+            </div>
+          </div>
+
+          <button class="side-menu-footer side-menu-footer-btn" type="button" data-side-menu-action="logout">
+            <strong>Выйти из аккаунта</strong>
+            <span>До конца сессии: 5 дней</span>
+          </button>
+        </div>
+      </aside>
 
       <div class="action-dock" aria-label="Основные действия">
         <button class="dock-button" id="listButton" type="button">
@@ -105,7 +214,7 @@
       </div>
 
       <section class="sheet" id="sheet" aria-live="polite" aria-hidden="true">
-        <button class="sheet-close" id="sheetClose" type="button" aria-label="Закрыть">x</button>
+        <button class="sheet-close" id="sheetClose" type="button" aria-label="Закрыть">×</button>
         <div class="sheet-grip" aria-hidden="true"></div>
         <div class="sheet-content" id="sheetContent"></div>
       </section>
