@@ -1492,7 +1492,6 @@
 
     const isOwn = point.id === state.ownPointId;
     const status = statuses[point.status] || statuses.search;
-    const distance = getDistanceLabel(point);
     const exchangeLabel = getPointExchangeLabel(point);
     const openProposal = getActiveProposalWith(point.id);
     const displayName = getPointDisplayName(point);
@@ -1509,7 +1508,7 @@
 
     dom.sheetContent.innerHTML = `
       <h2 class="sheet-title">${escapeHtml(displayName)}</h2>
-      <p class="sheet-subtitle">${escapeHtml(exchangeLabel)}${distance ? ` · ${distance}` : ""}</p>
+      <p class="sheet-subtitle">${escapeHtml(exchangeLabel)}</p>
       <div class="status-row">
         <span class="status-badge ${status.badgeClass}">${status.label}</span>
         ${isOwn ? '<span class="status-badge status-own">Моя точка</span>' : ""}
@@ -1565,8 +1564,8 @@
 
   function getPointExchangeLabel(point) {
     const location = normalizeSpaces(point?.location || "");
-    if (!location) return "Меняюсь на район";
-    return `Меняюсь на ${location}`;
+    if (!location) return "Меняюсь на:";
+    return `Меняюсь на: ${location}`;
   }
 
   function renderContactAction(type, value) {
