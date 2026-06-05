@@ -139,7 +139,7 @@
   const MAX_ATTACHMENTS = 3;
   const MAX_ATTACHMENT_DIMENSION = 1280;
   const MAX_ATTACHMENT_BYTES = 380000;
-  const DISTRICT_SWAP_URL = "https://goswitch.ru/";
+  const DISTRICT_SWAP_URL = "https://goswitch.ru/?v=20260605-2";
   const DELIVERY_TRAINING_URL = "https://обучениедоставки.рф/";
 
   const dom = {
@@ -258,7 +258,9 @@
     setInterval(updateCountdown, 1000);
 
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("./service-worker.js", { updateViaCache: "none" }).catch(() => {});
+      navigator.serviceWorker
+        .register("./service-worker.js?v=20260605-2", { updateViaCache: "none" })
+        .catch(() => {});
     }
   }
 
