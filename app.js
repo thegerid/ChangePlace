@@ -179,6 +179,8 @@
   let baseTileLayer;
   let clusterLayer;
   let markerRegistry = new Map();
+  let markerIntroPointIds = new Set();
+  let markerTravelQueue = new Map();
   let activeFilter = "all";
   let activeLogisticCenterFilter = "";
   let pendingLatLng = null;
@@ -467,13 +469,16 @@
 
     const city = getActiveCity();
     const dayKey = getDayKey(city);
+    const previousPointsById = new Map(state.points.map((point) => [point.id, point]));
     const remoteState = await apiClient.getState({
       city_id: state.cityId,
       day_key: dayKey,
     });
 
+    const remotePoints = (remoteState.points || []).map(normalizeRemotePoint);
+    queueExchangeTravelAnimations(previousPointsById, remotePoints);
     state.dayKey = dayKey;
-    state.points = (remoteState.points || []).map(normalizeRemotePoint);
+    state.points = remotePoints;
     state.proposals = (remoteState.proposals || []).map(normalizeRemoteProposal);
     const own = state.points.find((point) => point.isOwn);
     state.ownPointId = own?.id || null;
@@ -1480,9 +1485,16 @@
       lng: point.lng,
     });
 
+    if (!existing && result.point?.id) {
+      markerIntroPointIds.add(result.point.id);
+    }
     await loadRemoteState();
     const savedPoint = normalizeRemotePoint(result.point);
-    openCard(savedPoint.id);
+    if (existing) {
+      openCard(savedPoint.id);
+    } else {
+      closeSheet();
+    }
     if (!silentToast) {
       showToast(existing ? "Ваша точка обновлена." : "Точка опубликована на общей карте.");
     }
@@ -1753,7 +1765,14 @@
 
   async function acceptProposal(proposalId, activeTab) {
     try {
+      const proposal = state.proposals.find((item) => item.id === proposalId);
+      const fromBefore = proposal ? getPoint(proposal.fromId) : null;
+      const toBefore = proposal ? getPoint(proposal.toId) : null;
       await apiClient.acceptOffer(proposalId);
+      if (proposal && fromBefore && toBefore) {
+        queuePointTravelAnimation(proposal.fromId, fromBefore, toBefore);
+        queuePointTravelAnimation(proposal.toId, toBefore, fromBefore);
+      }
       await loadRemoteState();
       openProposalsScreen(activeTab);
       showToast("Обмен принят. Точки автоматически поменялись местами.");
@@ -1878,11 +1897,15 @@
       let marker = markerRegistry.get(point.id);
 
       if (!marker || marker.__cpSignature !== signature) {
+        const shouldPlayIntro = markerIntroPointIds.has(point.id);
         if (marker) clusterLayer.removeLayer(marker);
         marker = buildPointMarker(point);
         marker.__cpSignature = signature;
         markerRegistry.set(point.id, marker);
         clusterLayer.addLayer(marker);
+        if (shouldPlayIntro) {
+          playMarkerIntro(marker, point.id);
+        }
         return;
       }
 
@@ -1896,6 +1919,7 @@
       clusterLayer.removeLayer(marker);
       markerRegistry.delete(pointId);
     });
+    playQueuedMarkerTravelAnimations();
   }
 
   function buildPointMarker(point) {
@@ -1910,12 +1934,92 @@
   function createPersonIcon(point) {
     const status = statuses[point.status] || statuses.search;
     const ownClass = point.id === state.ownPointId ? "marker-own" : "";
+    const introClass = markerIntroPointIds.has(point.id) ? "marker-intro" : "";
     return L.divIcon({
-      html: "",
-      className: `person-marker ${status.markerClass} ${ownClass}`,
+      html: `
+        <span class="person-marker__figure" aria-hidden="true">
+          <span class="person-marker__head"></span>
+          <span class="person-marker__body"></span>
+          <span class="person-marker__card"></span>
+          <span class="person-marker__docs"></span>
+        </span>
+      `,
+      className: `person-marker ${status.markerClass} ${ownClass} ${introClass}`,
       iconSize: [34, 40],
       iconAnchor: [17, 40],
     });
+  }
+
+  function queueExchangeTravelAnimations(previousPointsById, nextPoints) {
+    nextPoints.forEach((nextPoint) => {
+      const previousPoint = previousPointsById.get(nextPoint.id);
+      if (!previousPoint || nextPoint.status !== "agreed") return;
+      queuePointTravelAnimation(nextPoint.id, previousPoint, nextPoint);
+    });
+  }
+
+  function queuePointTravelAnimation(pointId, fromPoint, toPoint) {
+    if (!pointId || !hasPointMoved(fromPoint, toPoint)) return;
+    markerTravelQueue.set(pointId, {
+      from: { lat: Number(fromPoint.lat), lng: Number(fromPoint.lng) },
+      to: { lat: Number(toPoint.lat), lng: Number(toPoint.lng) },
+    });
+  }
+
+  function hasPointMoved(fromPoint, toPoint) {
+    const fromLat = Number(fromPoint?.lat);
+    const fromLng = Number(fromPoint?.lng);
+    const toLat = Number(toPoint?.lat);
+    const toLng = Number(toPoint?.lng);
+    if (![fromLat, fromLng, toLat, toLng].every(Number.isFinite)) return false;
+    return Math.abs(fromLat - toLat) > 0.000001 || Math.abs(fromLng - toLng) > 0.000001;
+  }
+
+  function playMarkerIntro(marker, pointId) {
+    markerIntroPointIds.delete(pointId);
+    window.setTimeout(() => {
+      marker.getElement()?.classList.remove("marker-intro");
+    }, 950);
+  }
+
+  function playQueuedMarkerTravelAnimations() {
+    markerTravelQueue.forEach((route, pointId) => {
+      const marker = markerRegistry.get(pointId);
+      if (!marker) return;
+      markerTravelQueue.delete(pointId);
+      animateMarkerTravel(marker, route);
+    });
+  }
+
+  function animateMarkerTravel(marker, route) {
+    const fromLatLng = L.latLng(route.from.lat, route.from.lng);
+    const toLatLng = L.latLng(route.to.lat, route.to.lng);
+    const element = marker.getElement();
+    if (marker.__cpAnimationFrame) {
+      window.cancelAnimationFrame(marker.__cpAnimationFrame);
+    }
+    marker.setLatLng(fromLatLng);
+    element?.classList.add("marker-running");
+
+    const duration = 1600;
+    const startedAt = performance.now();
+    const tick = (now) => {
+      const progress = Math.min((now - startedAt) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      marker.setLatLng([
+        fromLatLng.lat + (toLatLng.lat - fromLatLng.lat) * eased,
+        fromLatLng.lng + (toLatLng.lng - fromLatLng.lng) * eased,
+      ]);
+      if (progress < 1) {
+        marker.__cpAnimationFrame = window.requestAnimationFrame(tick);
+        return;
+      }
+      marker.setLatLng(toLatLng);
+      marker.__cpAnimationFrame = 0;
+      marker.getElement()?.classList.remove("marker-running");
+    };
+
+    marker.__cpAnimationFrame = window.requestAnimationFrame(tick);
   }
 
   function getMarkerSignature(point) {

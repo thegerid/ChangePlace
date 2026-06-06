@@ -1509,15 +1509,29 @@ button {
   height: 40px;
   color: #ffffff;
   filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.36));
+  overflow: visible;
 }
 
 :root[data-theme="light"] .person-marker {
   color: #111417;
 }
 
-.person-marker::before {
-  content: "";
+.person-marker__figure {
   position: absolute;
+  inset: 0;
+  transform-origin: 50% 100%;
+  will-change: transform, opacity;
+}
+
+.person-marker__head,
+.person-marker__body,
+.person-marker__card,
+.person-marker__docs {
+  position: absolute;
+  display: block;
+}
+
+.person-marker__head {
   top: 3px;
   left: 10px;
   width: 14px;
@@ -1526,9 +1540,7 @@ button {
   background: currentColor;
 }
 
-.person-marker::after {
-  content: "";
-  position: absolute;
+.person-marker__body {
   top: 18px;
   left: 6px;
   width: 22px;
@@ -1539,6 +1551,133 @@ button {
     linear-gradient(currentColor 0 0) 13px 18px / 5px 9px no-repeat,
     currentColor;
   clip-path: polygon(18% 0, 82% 0, 100% 45%, 80% 45%, 76% 100%, 56% 100%, 50% 60%, 44% 100%, 24% 100%, 20% 45%, 0 45%);
+}
+
+.person-marker__card,
+.person-marker__docs {
+  top: 21px;
+  width: 10px;
+  height: 7px;
+  border-radius: 2px;
+  opacity: 0;
+  transform: translateY(2px) scale(0.7);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.person-marker__card {
+  left: -3px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.82) 0 22%, transparent 22% 100%),
+    linear-gradient(#ffd35a 0 0) 2px 4px / 6px 1px no-repeat,
+    #d6262c;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.person-marker__docs {
+  right: -4px;
+  height: 9px;
+  border: 1px solid rgba(17, 20, 23, 0.28);
+  background:
+    linear-gradient(#d6262c 0 0) 2px 2px / 5px 1px no-repeat,
+    linear-gradient(#b8c0ca 0 0) 2px 5px / 6px 1px no-repeat,
+    #ffffff;
+  box-shadow:
+    2px -2px 0 #eef1f4,
+    0 1px 3px rgba(0, 0, 0, 0.24);
+}
+
+.person-marker.marker-intro .person-marker__figure {
+  animation: marker-pop-in 720ms cubic-bezier(0.2, 1.45, 0.32, 1) both;
+}
+
+.person-marker.marker-intro::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  bottom: -3px;
+  width: 26px;
+  height: 9px;
+  border: 2px solid currentColor;
+  border-radius: 999px;
+  opacity: 0;
+  animation: marker-landing-ring 720ms ease-out both;
+}
+
+.person-marker.marker-running {
+  z-index: 900 !important;
+}
+
+.person-marker.marker-running .person-marker__figure {
+  animation: marker-run-body 260ms ease-in-out infinite alternate;
+}
+
+.person-marker.marker-running .person-marker__card,
+.person-marker.marker-running .person-marker__docs {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.person-marker.marker-running .person-marker__card {
+  animation: marker-run-left-hand 260ms ease-in-out infinite alternate;
+}
+
+.person-marker.marker-running .person-marker__docs {
+  animation: marker-run-right-hand 260ms ease-in-out infinite alternate-reverse;
+}
+
+@keyframes marker-pop-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-18px) scale(0.45);
+  }
+  62% {
+    opacity: 1;
+    transform: translateY(2px) scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes marker-landing-ring {
+  0% {
+    opacity: 0.48;
+    transform: scale(0.2);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+@keyframes marker-run-body {
+  0% {
+    transform: translateY(0) rotate(-5deg);
+  }
+  100% {
+    transform: translateY(-4px) rotate(6deg);
+  }
+}
+
+@keyframes marker-run-left-hand {
+  0% {
+    transform: translate(-1px, 1px) rotate(-18deg);
+  }
+  100% {
+    transform: translate(1px, -2px) rotate(16deg);
+  }
+}
+
+@keyframes marker-run-right-hand {
+  0% {
+    transform: translate(1px, 1px) rotate(18deg);
+  }
+  100% {
+    transform: translate(-1px, -2px) rotate(-14deg);
+  }
 }
 
 .marker-search {
