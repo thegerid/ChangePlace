@@ -19,10 +19,29 @@
 - Main styles: [styles.css](/c:/Users/Selecty/Desktop/AI_Skills/ChangePlace/styles.css)
 - Backend: [server.mjs](/c:/Users/Selecty/Desktop/AI_Skills/ChangePlace/server.mjs)
 - Runtime config: [config.js](/c:/Users/Selecty/Desktop/AI_Skills/ChangePlace/config.js)
+- Internal module map: [ARCHITECTURE.md](/c:/Users/Selecty/Desktop/AI_Skills/ChangePlace/ARCHITECTURE.md)
+
+## Internal Structure
+
+- Frontend orchestration stays in [app.js](/c:/Users/Selecty/Desktop/AI_Skills/ChangePlace/app.js)
+- Extracted frontend feature modules live in:
+  - [src/client/modules/scroll-row.js](/c:/Users/Selecty/Desktop/AI_Skills/ChangePlace/src/client/modules/scroll-row.js)
+  - [src/client/modules/filter-panel.js](/c:/Users/Selecty/Desktop/AI_Skills/ChangePlace/src/client/modules/filter-panel.js)
+  - [src/client/modules/delivery-addresses.js](/c:/Users/Selecty/Desktop/AI_Skills/ChangePlace/src/client/modules/delivery-addresses.js)
+  - [src/client/modules/delivery-marker.js](/c:/Users/Selecty/Desktop/AI_Skills/ChangePlace/src/client/modules/delivery-marker.js)
+- Backend shared modules now live in:
+  - [src/server/config.mjs](/c:/Users/Selecty/Desktop/AI_Skills/ChangePlace/src/server/config.mjs)
+  - [src/server/utils.mjs](/c:/Users/Selecty/Desktop/AI_Skills/ChangePlace/src/server/utils.mjs)
+  - [src/server/http.mjs](/c:/Users/Selecty/Desktop/AI_Skills/ChangePlace/src/server/http.mjs)
+  - [src/server/store.mjs](/c:/Users/Selecty/Desktop/AI_Skills/ChangePlace/src/server/store.mjs)
+  - [src/server/auth.mjs](/c:/Users/Selecty/Desktop/AI_Skills/ChangePlace/src/server/auth.mjs)
+- Backend orchestration and route composition remain in [server.mjs](/c:/Users/Selecty/Desktop/AI_Skills/ChangePlace/server.mjs); next clean split target is `points / offers / presenters`
 
 ## Production Server
 
 - Server IP: `130.49.172.96`
+- Local SSH alias: `changeplace-prod`
+- Local SSH private key: `C:\Users\Selecty\.ssh\changeplace_vps` (do not store in repo)
 - Server OS target: `Ubuntu 22.04`
 - App root on server: `/opt/changeplace`
 - Service user: `changeplace`
@@ -54,6 +73,9 @@
 
 ## Publishing Notes
 
+- Default publication target for requests like "опубликуй изменения", "опубликуй правки", or "выложи обновления" is the production server first, not GitHub.
+- Publish to GitHub only when the user explicitly asks for Git/GitHub actions, for example: "закинь на гит", "запушь", "сделай коммит", or "опубликуй в GitHub".
+- All source changes must remain stored locally in this workspace. Treat the VPS and GitHub as publication targets, not as the only storage for changes.
 - Git publication target: `origin/main`
 - Server deployment target: `/opt/changeplace`
 - After file sync, expected restart sequence:

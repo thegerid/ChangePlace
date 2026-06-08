@@ -1,10 +1,14 @@
-const CACHE_NAME = "changeplace-pwa-v44";
+const CACHE_NAME = "changeplace-pwa-v76";
 const SHELL_ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=20260605-2",
-  "./app.js?v=20260605-2",
-  "./manifest.webmanifest?v=20260605-2",
+  "./styles.css?v=20260608-15",
+  "./app.js?v=20260608-15",
+  "./manifest.webmanifest?v=20260608-15",
+  "./src/client/modules/scroll-row.js?v=20260608-15",
+  "./src/client/modules/filter-panel.js?v=20260608-15",
+  "./src/client/modules/delivery-addresses.js?v=20260608-15",
+  "./src/client/modules/delivery-marker.js?v=20260608-15",
   "./assets/icon.svg",
   "./assets/avatars/cat-1.svg",
   "./assets/avatars/cat-2.svg",

@@ -35,13 +35,13 @@
       name="twitter:description"
       content="Сервис обмена районами работы для сотрудников доставки банковских продуктов."
     />
-    <link rel="manifest" href="./manifest.webmanifest?v=20260605-2" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260608-15" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/icon.svg" />
     <link rel="stylesheet" href="./assets/vendor/leaflet/leaflet.css" />
     <link rel="stylesheet" href="./assets/vendor/leaflet-markercluster/MarkerCluster.css" />
     <link rel="stylesheet" href="./assets/vendor/leaflet-markercluster/MarkerCluster.Default.css" />
-    <link rel="stylesheet" href="./styles.css?v=20260605-2" />
+    <link rel="stylesheet" href="./styles.css?v=20260608-15" />
   </head>
   <body>
     <div class="app-shell">
@@ -87,17 +87,46 @@
           </button>
         </div>
 
-        <nav class="filter-bar" aria-label="Фильтр точек по статусу">
+        <nav class="filter-bar scroll-row" aria-label="Фильтр точек по статусу">
           <button class="filter-chip is-active" type="button" data-filter="all">Все</button>
           <button class="filter-chip" type="button" data-filter="search">Ищу обмен</button>
-          <button class="filter-chip" type="button" data-filter="agreed">Договорился</button>
+          <button class="filter-chip" type="button" data-filter="delivery">Доставка</button>
         </nav>
-        <label class="filter-select" id="logisticCenterFilterField" hidden>
-          <span>ЛЦ</span>
-          <select id="logisticCenterFilterSelect">
-            <option value="">Все логистические центры</option>
-          </select>
-        </label>
+        <section class="filters-dropdown" id="filtersDropdown" aria-label="Блок фильтров">
+          <button class="filters-toggle" id="filtersToggle" type="button" aria-expanded="false" aria-controls="filtersPanel">
+            <span>Фильтры</span>
+          </button>
+          <div class="filters-panel" id="filtersPanel" hidden>
+            <div class="filters-panel__grid">
+              <label class="filter-select" id="deliveryProductFilterField">
+                <span>Продукт</span>
+                <select id="deliveryProductFilterSelect">
+                  <option value="">Все продукты</option>
+                </select>
+              </label>
+              <label class="filter-select" id="deliveryIntervalFilterField">
+                <span>Интервал</span>
+                <select id="deliveryIntervalFilterSelect">
+                  <option value="">Все интервалы</option>
+                </select>
+              </label>
+              <label class="filter-select" id="deliveryAvailabilityFilterField">
+                <span>Бронирование</span>
+                <select id="deliveryAvailabilityFilterSelect">
+                  <option value="all">Все</option>
+                  <option value="available">Доступна</option>
+                  <option value="reserved">Забронирована</option>
+                </select>
+              </label>
+              <label class="filter-select" id="logisticCenterFilterField" hidden>
+                <span>ЛЦ</span>
+                <select id="logisticCenterFilterSelect">
+                  <option value="">Все ЛЦ</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        </section>
       </header>
 
       <aside class="side-menu" id="sideMenu" aria-hidden="true">
@@ -203,15 +232,15 @@
           <span class="dock-icon" aria-hidden="true">+</span>
           <span id="ownPointButtonText">Добавить себя</span>
         </button>
-        <button class="dock-button" id="geoButton" type="button">
-          <span class="dock-icon dock-icon-geo" aria-hidden="true"></span>
-          <span>Геолокация</span>
-        </button>
         <button class="dock-button" id="ownerContactsButton" type="button">
           <span class="dock-icon" aria-hidden="true">?</span>
           <span>Контакты</span>
         </button>
       </div>
+
+      <button class="map-fab map-fab-geo" id="geoButton" type="button" aria-label="Геолокация">
+        <span class="map-fab-geo__icon" aria-hidden="true"></span>
+      </button>
 
       <section class="sheet" id="sheet" aria-live="polite" aria-hidden="true">
         <button class="sheet-close" id="sheetClose" type="button" aria-label="Закрыть">×</button>
@@ -224,7 +253,11 @@
 
     <script src="./assets/vendor/leaflet/leaflet.js"></script>
     <script src="./assets/vendor/leaflet-markercluster/leaflet.markercluster.js"></script>
-    <script src="./config.js?v=20260605-2"></script>
-    <script src="./app.js?v=20260605-2"></script>
+    <script src="./config.js?v=20260608-15"></script>
+    <script src="./src/client/modules/scroll-row.js?v=20260608-15"></script>
+    <script src="./src/client/modules/filter-panel.js?v=20260608-15"></script>
+    <script src="./src/client/modules/delivery-addresses.js?v=20260608-15"></script>
+    <script src="./src/client/modules/delivery-marker.js?v=20260608-15"></script>
+    <script src="./app.js?v=20260608-15"></script>
   </body>
 </html>

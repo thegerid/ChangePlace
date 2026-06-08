@@ -8,6 +8,13 @@
   const apiBaseUrls = normalizeApiBaseUrls(APP_CONFIG.apiBaseUrl);
   let preferredApiBaseUrl = Array.isArray(apiBaseUrls) ? apiBaseUrls[0] ?? "" : apiBaseUrls;
   const apiClient = apiBaseUrls === null ? null : createApiClient(apiBaseUrls);
+  const moduleRegistry = window.ChangePlaceModules || {};
+  const initScrollableRowsFromModule = moduleRegistry.scrollRow?.initScrollableRows;
+  const createFilterPanelControllerFromModule = moduleRegistry.filterPanel?.createFilterPanelController;
+  const createFilterSelectControllerFromModule = moduleRegistry.filterPanel?.createFilterSelectController;
+  const createDeliveryIconFromModule = moduleRegistry.deliveryMarker?.createDeliveryIcon;
+  const getDeliveryMarkerModeFromModule = moduleRegistry.deliveryMarker?.getDeliveryMarkerMode;
+  const syncDeliveryMarkerModeFromModule = moduleRegistry.deliveryMarker?.syncDeliveryMarkerMode;
 
   const tileThemes = {
     dark: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
@@ -22,6 +29,10 @@
       center: [59.93428, 30.3351],
       zoom: 11,
       minZoom: 3,
+      geocodeBounds: [
+        [59.72, 29.5],
+        [60.16, 30.9],
+      ],
       bounds: [
         [41.15, -180],
         [82.25, 180],
@@ -34,6 +45,10 @@
       center: [55.7558, 37.6173],
       zoom: 11,
       minZoom: 3,
+      geocodeBounds: [
+        [55.48, 36.8],
+        [56.02, 38.1],
+      ],
       bounds: [
         [41.15, -180],
         [82.25, 180],
@@ -46,6 +61,10 @@
       center: [55.796127, 49.106405],
       zoom: 11,
       minZoom: 3,
+      geocodeBounds: [
+        [55.66, 48.85],
+        [55.94, 49.32],
+      ],
       bounds: [
         [41.15, -180],
         [82.25, 180],
@@ -75,6 +94,23 @@
     pending: "Ожидает ответа",
     accepted: "Принято",
     declined: "Отказ",
+  };
+
+  const pointTypes = {
+    swap: { label: "Обмен районами" },
+    delivery: { label: "Доставка" },
+  };
+
+  const deliveryProducts = ["DC", "CC", "CC2", "RE", "Orange", "Orange PAY", "RKO"];
+  const deliveryIntervals = buildDeliveryIntervals();
+  const deliveryMeetingOptions = {
+    yes: "Да",
+    no: "Нет",
+  };
+  const deliveryMarkerZoomModes = {
+    full: "full",
+    product: "product",
+    dot: "dot",
   };
 
   const logisticCenterRegions = [
@@ -139,7 +175,7 @@
   const MAX_ATTACHMENTS = 3;
   const MAX_ATTACHMENT_DIMENSION = 1280;
   const MAX_ATTACHMENT_BYTES = 380000;
-  const DISTRICT_SWAP_URL = "https://goswitch.ru/?v=20260605-2";
+  const DISTRICT_SWAP_URL = "https://goswitch.ru/?v=20260607-01";
   const DELIVERY_TRAINING_URL = "https://обучениедоставки.рф/";
 
   const dom = {
@@ -168,8 +204,16 @@
     themeToggle: document.getElementById("themeToggle"),
     cleanupCountdown: document.getElementById("cleanupCountdown"),
     toast: document.getElementById("toast"),
+    header: document.querySelector(".app-header"),
+    actionDock: document.querySelector(".action-dock"),
     filterBar: document.querySelector(".filter-bar"),
+    filtersDropdown: document.getElementById("filtersDropdown"),
+    filtersToggle: document.getElementById("filtersToggle"),
+    filtersPanel: document.getElementById("filtersPanel"),
     filters: Array.from(document.querySelectorAll("[data-filter]")),
+    deliveryProductFilterSelect: document.getElementById("deliveryProductFilterSelect"),
+    deliveryIntervalFilterSelect: document.getElementById("deliveryIntervalFilterSelect"),
+    deliveryAvailabilityFilterSelect: document.getElementById("deliveryAvailabilityFilterSelect"),
     logisticCenterFilterField: document.getElementById("logisticCenterFilterField"),
     logisticCenterFilterSelect: document.getElementById("logisticCenterFilterSelect"),
   };
@@ -178,10 +222,14 @@
   let map;
   let baseTileLayer;
   let clusterLayer;
+  let proposalLinkLayer;
   let markerRegistry = new Map();
   let markerIntroPointIds = new Set();
   let markerTravelQueue = new Map();
   let activeFilter = "all";
+  let activeDeliveryProductFilter = "";
+  let activeDeliveryIntervalFilter = "";
+  let activeDeliveryAvailabilityFilter = "all";
   let activeLogisticCenterFilter = "";
   let pendingLatLng = null;
   let moveMode = false;
@@ -190,6 +238,8 @@
   let backendPollTimer = 0;
   let avatarMenuOpen = false;
   let sideMenuOpen = false;
+  let filtersPanelController = null;
+  let filterSelectController = null;
 
   init();
 
@@ -238,14 +288,31 @@
           iconAnchor: L.point(26, 26),
         }),
     });
+    proposalLinkLayer = L.layerGroup().addTo(map);
     map.addLayer(clusterLayer);
+    clusterLayer.on("animationend spiderfied unspiderfied", refreshPendingProposalLinksForCurrentView);
+    try {
+      localStorage.removeItem("changeplace:pending_focus");
+    } catch {}
 
     map.on("click", handleMapClick);
-    map.on("moveend zoomend", syncContextFilters);
+    map.on("zoomstart", () => {
+      proposalLinkLayer?.clearLayers();
+    });
+    map.on("moveend", () => {
+      syncContextFilters();
+      refreshPendingProposalLinksForCurrentView();
+    });
+    map.on("zoomend", () => {
+      syncContextFilters();
+      syncVisibleDeliveryMarkerModes();
+      refreshPendingProposalLinksForCurrentView();
+    });
     bindEvents();
+    initScrollableRowsFromModule?.(document);
+    renderDeliveryFilterOptions();
     refreshHeader();
     refresh();
-    tryUseGrantedGeolocation();
 
     if (!apiClient) {
       showToast("Сервер недоступен. Для регистрации и обмена нужен backend.");
@@ -261,7 +328,7 @@
 
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker
-        .register("./service-worker.js?v=20260605-2", { updateViaCache: "none" })
+        .register("./service-worker.js?v=20260608-15", { updateViaCache: "none" })
         .catch(() => {});
     }
   }
@@ -297,6 +364,15 @@
       closeAvatarMenu();
     });
 
+    filtersPanelController = createFilterPanelControllerFromModule?.({
+      root: dom.filtersDropdown,
+      toggleButton: dom.filtersToggle,
+      panel: dom.filtersPanel,
+    });
+    filterSelectController = createFilterSelectControllerFromModule?.({
+      root: dom.filtersDropdown,
+    });
+
     dom.sideMenu.addEventListener("click", (event) => {
       if (event.target.closest("[data-side-menu-close]")) {
         closeSideMenu();
@@ -316,12 +392,16 @@
       if (sideMenuOpen) {
         closeSideMenu();
       }
+      filterSelectController?.close?.();
+      filtersPanelController?.close?.();
     });
 
     dom.filters.forEach((button) => {
       button.addEventListener("click", () => {
         activeFilter = button.dataset.filter;
         dom.filters.forEach((item) => item.classList.toggle("is-active", item === button));
+        filterSelectController?.close?.();
+        filtersPanelController?.close?.();
         refreshMarkers();
       });
     });
@@ -332,11 +412,47 @@
         refreshMarkers();
       });
     }
+
+    if (dom.deliveryProductFilterSelect) {
+      dom.deliveryProductFilterSelect.addEventListener("change", () => {
+        activeDeliveryProductFilter = dom.deliveryProductFilterSelect.value;
+        refreshMarkers();
+      });
+    }
+
+    if (dom.deliveryIntervalFilterSelect) {
+      dom.deliveryIntervalFilterSelect.addEventListener("change", () => {
+        activeDeliveryIntervalFilter = dom.deliveryIntervalFilterSelect.value;
+        refreshMarkers();
+      });
+    }
+
+    if (dom.deliveryAvailabilityFilterSelect) {
+      dom.deliveryAvailabilityFilterSelect.addEventListener("change", () => {
+        activeDeliveryAvailabilityFilter = dom.deliveryAvailabilityFilterSelect.value;
+        refreshMarkers();
+      });
+    }
+  }
+
+  function renderDeliveryFilterOptions() {
+    if (dom.deliveryProductFilterSelect) {
+      dom.deliveryProductFilterSelect.innerHTML = ['<option value="">Все продукты</option>']
+        .concat(deliveryProducts.map((item) => `<option value="${escapeAttr(item)}">${escapeHtml(item)}</option>`))
+        .join("");
+    }
+    if (dom.deliveryIntervalFilterSelect) {
+      dom.deliveryIntervalFilterSelect.innerHTML = ['<option value="">Все интервалы</option>']
+        .concat(deliveryIntervals.map((item) => `<option value="${escapeAttr(item)}">${escapeHtml(item)}</option>`))
+        .join("");
+    }
+    filterSelectController?.sync?.();
   }
 
   async function initBackend() {
     await loadSession({ recenter: true });
     await loadRemoteState();
+    focusPendingProposalsOnLoad();
     startBackendPolling();
   }
 
@@ -365,6 +481,12 @@
       },
       upsertPoint(payload) {
         return apiRequest(baseUrls, "/api/points", { method: "POST", body: payload });
+      },
+      reservePoint(pointId) {
+        return apiRequest(baseUrls, `/api/points/${encodeURIComponent(pointId)}/reserve`, {
+          method: "POST",
+          body: {},
+        });
       },
       deletePoint(pointId) {
         return apiRequest(baseUrls, `/api/points/${encodeURIComponent(pointId)}`, {
@@ -480,8 +602,11 @@
     state.dayKey = dayKey;
     state.points = remotePoints;
     state.proposals = (remoteState.proposals || []).map(normalizeRemoteProposal);
-    const own = state.points.find((point) => point.isOwn);
+    const own = state.points.find((point) => point.isOwn && point.pointType === "swap");
     state.ownPointId = own?.id || null;
+    if (!state.proposals.some((proposal) => proposal.status === "pending")) {
+      clearPendingProposalFocusSnapshot();
+    }
     saveState();
     refresh();
   }
@@ -517,6 +642,7 @@
       isOwn: Boolean(row.is_own),
       cityId: row.city_id,
       dayKey: row.day_key,
+      pointType: row.point_type || "swap",
       name: row.full_name,
       phone: row.phone || "",
       telegram: row.telegram || "",
@@ -530,6 +656,14 @@
       status: row.status,
       lat: row.lat,
       lng: row.lng,
+      deliveryNumber: row.delivery_number || "",
+      productType: row.product_type || "",
+      deliveryInterval: row.delivery_interval || "",
+      deliveryAddress: row.delivery_address || "",
+      meetingAgreed: row.meeting_agreed || "",
+      deliveryDetailsVisible: Boolean(row.delivery_details_visible),
+      deliveryReservedByMe: Boolean(row.delivery_reserved_by_me),
+      deliveryAvailability: row.delivery_availability || "available",
       updatedAt: row.updated_at,
     });
   }
@@ -550,22 +684,27 @@
   function normalizePoint(point) {
     return {
       ...point,
+      pointType: point.pointType === "delivery" ? "delivery" : "swap",
       phone: point.phone || "",
       telegram: point.telegram || "",
       logisticCenter: point.logisticCenter || "",
       attachments: normalizeAttachments(point.attachments),
       hasPrivateContacts: Boolean(point.hasPrivateContacts ?? Boolean(point.phone || point.telegram)),
-      contactsVisible: Boolean(point.contactsVisible ?? point.isOwn),
+      contactsVisible: Boolean(point.isOwn || point.contactsVisible),
       avatarId: point.avatarId || "",
+      deliveryNumber: point.deliveryNumber || "",
+      productType: point.productType || "",
+      deliveryInterval: point.deliveryInterval || "",
+      deliveryAddress: point.deliveryAddress || "",
+      meetingAgreed: point.meetingAgreed || "",
+      deliveryDetailsVisible: Boolean(point.isOwn || point.deliveryDetailsVisible),
+      deliveryReservedByMe: Boolean(point.deliveryReservedByMe),
+      deliveryAvailability: point.deliveryAvailability || "available",
       status: statuses[point.status] ? point.status : "search",
     };
   }
 
   function getInitialView(city) {
-    const savedLocation = loadLastLocation();
-    if (savedLocation && isAllowedMapPoint(savedLocation)) {
-      return { center: [savedLocation.lat, savedLocation.lng], zoom: savedLocation.zoom || 13 };
-    }
     return { center: city.center, zoom: city.zoom };
   }
 
@@ -604,12 +743,12 @@
     const own = getOwnPoint();
     if (own) {
       pendingLatLng = L.latLng(own.lat, own.lng);
-      openForm(own);
+      openSwapForm(own);
       return;
     }
 
     pendingLatLng = map.getCenter();
-    openForm();
+    openSwapForm();
     showToast("Сначала подтвердите локацию точки, затем заполните карточку.");
   }
 
@@ -628,12 +767,7 @@
       return;
     }
 
-    if (own) {
-      showToast("У вас уже есть активная точка. Откройте «Моя точка», чтобы перенести ее.");
-      return;
-    }
-
-    openForm();
+    openPointTypePicker(event.latlng);
   }
 
   function locateUser(options = {}) {
@@ -658,7 +792,9 @@
 
         pendingLatLng = latLng;
         saveLastLocation(latLng, 15);
-        map.setView(latLng, 15);
+        if (!(silent && hasActivePendingProposals())) {
+          map.setView(latLng, 15);
+        }
         if (!silent) dom.geoButton.classList.remove("is-active");
 
         if (getOwnPoint() && updateOwnPoint) {
@@ -666,7 +802,7 @@
         } else if (getOwnPoint() && !silent) {
           showToast("Геолокация определена.");
         } else if (!getOwnPoint() && openFormOnNewPoint && isAuthenticated()) {
-          openForm();
+          openPointTypePicker(latLng);
           if (!silent) showToast("Геолокация определена.");
         }
       },
@@ -714,6 +850,7 @@
     dom.sheetContent.querySelectorAll("[data-auth-tab]").forEach((button) => {
       button.addEventListener("click", () => openAuthScreen(button.dataset.authTab));
     });
+    initScrollableRowsFromModule?.(dom.sheetContent);
 
     const registerForm = document.getElementById("registerForm");
     if (registerForm) {
@@ -1289,7 +1426,32 @@
     });
   }
 
-  function openForm(existingPoint) {
+  function openPointTypePicker(latLng) {
+    pendingLatLng = latLng || pendingLatLng || map.getCenter();
+    const ownSwapPoint = getOwnPoint();
+
+    dom.sheetContent.innerHTML = `
+      <h2 class="sheet-title">Выберите тип метки</h2>
+      <p class="sheet-subtitle">Обмен районами работает по старому сценарию. Для доставки откроется отдельная карточка заявки.</p>
+      <div class="button-grid">
+        <button class="action-button primary" id="openSwapPointFlow" type="button">${ownSwapPoint ? "Моя метка обмена" : "Обмен районами"}</button>
+        <button class="action-button" id="openDeliveryPointFlow" type="button">Доставка</button>
+      </div>
+    `;
+
+    document.getElementById("openSwapPointFlow")?.addEventListener("click", () => {
+      if (ownSwapPoint) {
+        openCard(ownSwapPoint.id);
+        return;
+      }
+      openSwapForm();
+    });
+    document.getElementById("openDeliveryPointFlow")?.addEventListener("click", () => openDeliveryForm());
+    initScrollableRowsFromModule?.(dom.sheetContent);
+    openSheet();
+  }
+
+  function openSwapForm(existingPoint) {
     if (!isAuthenticated()) {
       openAuthScreen("register");
       return;
@@ -1338,7 +1500,7 @@
           ${renderDetailItem("Город работы", getActiveCityName())}
         </div>
       </div>
-      <form class="form-grid" id="pointForm" novalidate>
+      <form class="form-grid" id="swapPointForm" novalidate>
         <label class="field" data-field="location">
           <span>Предпочтительная локация для обмена *</span>
           <input name="location" autocomplete="off" placeholder="Например, район, метро или часть города" value="${escapeAttr(own?.location || "")}" />
@@ -1369,8 +1531,8 @@
       </form>
     `;
 
-    const form = document.getElementById("pointForm");
-    form.addEventListener("submit", handleFormSubmit);
+    const form = document.getElementById("swapPointForm");
+    form.addEventListener("submit", handleSwapFormSubmit);
     form.querySelectorAll("input, textarea, select").forEach((field) => {
       field.addEventListener("input", () => clearFieldError(field));
       field.addEventListener("change", () => clearFieldError(field));
@@ -1410,13 +1572,303 @@
 
     const deleteButton = document.getElementById("deletePoint");
     if (deleteButton) {
-      deleteButton.addEventListener("click", deleteOwnPoint);
+      deleteButton.addEventListener("click", () => deletePoint(own));
     }
 
     openSheet();
   }
 
-  async function handleFormSubmit(event) {
+  function openDeliveryForm(existingPoint) {
+    if (!isAuthenticated()) {
+      openAuthScreen("register");
+      return;
+    }
+
+    const user = state.user;
+    const point = existingPoint && existingPoint.pointType === "delivery" ? existingPoint : null;
+    const latLng = pendingLatLng || (point ? L.latLng(point.lat, point.lng) : map.getCenter());
+    const isEdit = Boolean(point);
+    const initialDrafts = isEdit
+      ? [
+          createDeliveryDraft({
+            deliveryNumber: point?.deliveryNumber || "",
+            productType: point?.productType || "",
+            deliveryAddress: point?.deliveryAddress || "",
+            deliveryInterval: point?.deliveryInterval || "",
+            meetingAgreed: point?.meetingAgreed || "",
+            comment: point?.comment || "",
+          }),
+        ]
+      : [createDeliveryDraft()];
+
+    dom.sheetContent.innerHTML = `
+      <h2 class="sheet-title">${isEdit ? "\u0417\u0430\u044f\u0432\u043a\u0430 \u043d\u0430 \u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0443" : "\u041d\u043e\u0432\u0430\u044f \u0437\u0430\u044f\u0432\u043a\u0430 \u043d\u0430 \u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0443"}</h2>
+      <p class="sheet-subtitle">\u0422\u043e\u0447\u043a\u0430 \u0440\u0430\u0437\u043c\u0435\u0449\u0430\u0435\u0442\u0441\u044f \u043d\u0430 \u043a\u0430\u0440\u0442\u0435 \u0447\u0435\u0440\u0435\u0437 \u0442\u0430\u043f, \u0430 \u0430\u0434\u0440\u0435\u0441 \u0438\u0437 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u0442\u0441\u044f \u0434\u043b\u044f \u0442\u043e\u0447\u043d\u043e\u0433\u043e \u0440\u0430\u0437\u043c\u0435\u0449\u0435\u043d\u0438\u044f \u0437\u0430\u044f\u0432\u043a\u0438 \u043d\u0430 \u043a\u0430\u0440\u0442\u0435.</p>
+      <div class="profile-lock-card">
+        <div class="profile-lock-card__head">
+          <img src="${escapeAttr(getAvatarById(user.avatarId).src)}" alt="" />
+          <div>
+            <strong>${escapeHtml(user.name)}</strong>
+            <span>${escapeHtml(user.email)}</span>
+          </div>
+        </div>
+      </div>
+      <form class="form-grid" id="deliveryPointForm" data-point-id="${escapeAttr(point?.id || "")}" novalidate>
+        <div class="delivery-drafts" id="deliveryDrafts"></div>
+        ${
+          !isEdit
+            ? '<button class="action-button action-button-inline" id="addDeliveryDraft" type="button">\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0435\u0449\u0435 \u0437\u0430\u044f\u0432\u043a\u0443</button>'
+            : ""
+        }
+        <small class="field-hint">${
+          isEdit
+            ? "\u041e\u0442\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u0443\u0439\u0442\u0435 \u0434\u0430\u043d\u043d\u044b\u0435 \u044d\u0442\u043e\u0439 \u0437\u0430\u044f\u0432\u043a\u0438 \u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u0435 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f."
+            : "\u041c\u043e\u0436\u043d\u043e \u0441\u043e\u0431\u0440\u0430\u0442\u044c \u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0437\u0430\u044f\u0432\u043e\u043a \u0438 \u043e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u0442\u044c \u0438\u0445 \u0437\u0430 \u043e\u0434\u0438\u043d \u0440\u0430\u0437."
+        }</small>
+        <input type="hidden" name="lat" value="${latLng.lat}" />
+        <input type="hidden" name="lng" value="${latLng.lng}" />
+        <div class="button-grid">
+          <button class="action-button primary" type="submit">${isEdit ? "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0437\u0430\u044f\u0432\u043a\u0443" : "\u041e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u0442\u044c \u0437\u0430\u044f\u0432\u043a\u0438"}</button>
+          <button class="action-button" id="repickDeliveryOnMap" type="button">\u0412\u044b\u0431\u0440\u0430\u0442\u044c \u043d\u0430 \u043a\u0430\u0440\u0442\u0435</button>
+          ${isEdit ? '<button class="action-button danger" id="deleteDeliveryPoint" type="button">\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u043c\u0435\u0442\u043a\u0443</button>' : ""}
+        </div>
+      </form>
+    `;
+
+    const form = document.getElementById("deliveryPointForm");
+    bindDeliveryDraftEditor(form, {
+      drafts: initialDrafts,
+      isEdit,
+      clearFieldError,
+      escapeAttr,
+      escapeHtml,
+      intervals: deliveryIntervals,
+    });
+    form.addEventListener("submit", handleDeliveryFormSubmit);
+
+    document.getElementById("repickDeliveryOnMap")?.addEventListener("click", () => {
+      closeSheet();
+      showToast("\u0422\u0430\u043f\u043d\u0438\u0442\u0435 \u043c\u0435\u0441\u0442\u043e \u043d\u0430 \u043a\u0430\u0440\u0442\u0435, \u0437\u0430\u0442\u0435\u043c \u0432\u0435\u0440\u043d\u0438\u0442\u0435\u0441\u044c \u043a \u0441\u043e\u0437\u0434\u0430\u043d\u0438\u044e \u0437\u0430\u044f\u0432\u043a\u0438.");
+    });
+    document.getElementById("deleteDeliveryPoint")?.addEventListener("click", () => deletePoint(point));
+    openSheet();
+  }
+
+  function createDeliveryDraft(values = {}) {
+    return {
+      deliveryNumber: normalizeSpaces(values.deliveryNumber || ""),
+      productType: String(values.productType || "").trim(),
+      deliveryAddress: normalizeSpaces(values.deliveryAddress || ""),
+      deliveryInterval: String(values.deliveryInterval || "").trim(),
+      meetingAgreed: String(values.meetingAgreed || "").trim(),
+      comment: normalizeSpaces(values.comment || ""),
+    };
+  }
+
+  function getDeliveryDraftSummary(draft) {
+    const parts = [draft.productType, draft.deliveryInterval, draft.deliveryAddress].filter(Boolean);
+    return parts.length ? parts.join(" \u2022 ") : "\u041d\u043e\u0432\u0430\u044f \u0437\u0430\u044f\u0432\u043a\u0430";
+  }
+
+  function renderDeliveryDraftCard(draft, index, options = {}) {
+    const escapeAttr = options.escapeAttr || ((input) => String(input ?? ""));
+    const escapeHtml = options.escapeHtml || ((input) => String(input ?? ""));
+    const intervals = Array.isArray(options.intervals) ? options.intervals : [];
+    const expanded = Boolean(options.expanded);
+    const canRemove = Boolean(options.canRemove);
+    return `
+      <section class="delivery-draft ${expanded ? "is-expanded" : "is-collapsed"}" data-delivery-draft="${index}">
+        <div class="delivery-draft__head">
+          <button class="delivery-draft__toggle" type="button" data-toggle-delivery-draft="${index}" aria-expanded="${expanded ? "true" : "false"}">
+            <span class="delivery-draft__title">\u0417\u0430\u044f\u0432\u043a\u0430 ${index + 1}</span>
+            <span class="delivery-draft__summary" data-delivery-draft-summary>${escapeHtml(getDeliveryDraftSummary(draft))}</span>
+          </button>
+          ${canRemove ? `<button class="delivery-draft__remove" type="button" data-remove-delivery-draft="${index}" aria-label="\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0437\u0430\u044f\u0432\u043a\u0443">&times;</button>` : ""}
+        </div>
+        <div class="delivery-draft__content" ${expanded ? "" : "hidden"}>
+          <label class="field" data-field="deliveryNumber">
+            <span>\u041d\u043e\u043c\u0435\u0440 \u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0438 *</span>
+            <input name="deliveryNumber" autocomplete="off" placeholder="\u0421\u043a\u043e\u043f\u0438\u0440\u0443\u0439\u0442\u0435 \u043d\u043e\u043c\u0435\u0440 \u0438\u0437 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u0437\u0430\u044f\u0432\u043a\u0438 \u0432 Go" value="${escapeAttr(draft.deliveryNumber)}" />
+            <small class="field-error">\u0423\u043a\u0430\u0436\u0438\u0442\u0435 \u043d\u043e\u043c\u0435\u0440 \u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0438.</small>
+          </label>
+          <label class="field" data-field="productType">
+            <span>\u041f\u0440\u043e\u0434\u0443\u043a\u0442 *</span>
+            <select name="productType">
+              <option value="">\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u043f\u0440\u043e\u0434\u0443\u043a\u0442</option>
+              ${deliveryProducts
+                .map(
+                  (item) => `<option value="${escapeAttr(item)}" ${draft.productType === item ? "selected" : ""}>${escapeHtml(item)}</option>`,
+                )
+                .join("")}
+            </select>
+            <small class="field-error">\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u043f\u0440\u043e\u0434\u0443\u043a\u0442.</small>
+          </label>
+          <div class="field" data-field="deliveryAddress">
+            <span>\u0410\u0434\u0440\u0435\u0441 *</span>
+            <div class="address-item__row address-item__row--single">
+              <input
+                name="deliveryAddress"
+                autocomplete="off"
+                placeholder="\u0421\u043a\u043e\u043f\u0438\u0440\u0443\u0439\u0442\u0435 \u0430\u0434\u0440\u0435\u0441 \u0438\u0437 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u0437\u0430\u044f\u0432\u043a\u0438 \u0432 Go"
+                value="${escapeAttr(draft.deliveryAddress)}"
+              />
+              <select name="deliveryIntervalRow" aria-label="\u0418\u043d\u0442\u0435\u0440\u0432\u0430\u043b \u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0438">
+                <option value="">\u0418\u043d\u0442\u0435\u0440\u0432\u0430\u043b</option>
+                ${intervals
+                  .map(
+                    (item) => `<option value="${escapeAttr(item)}" ${draft.deliveryInterval === item ? "selected" : ""}>${escapeHtml(item)}</option>`,
+                  )
+                  .join("")}
+              </select>
+            </div>
+            <small class="field-error">\u0423\u043a\u0430\u0436\u0438\u0442\u0435 \u0430\u0434\u0440\u0435\u0441 \u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0438.</small>
+          </div>
+          <div class="field" data-field="meetingAgreed">
+            <span>\u0412\u0441\u0442\u0440\u0435\u0447\u0430 \u0441\u043e\u0433\u043b\u0430\u0441\u043e\u0432\u0430\u043d\u0430? *</span>
+            <div class="choice-row">
+              ${Object.entries(deliveryMeetingOptions)
+                .map(
+                  ([value, label]) => `
+                    <button class="choice-pill ${draft.meetingAgreed === value ? "is-active" : ""}" type="button" data-meeting-choice="${value}">
+                      ${escapeHtml(label)}
+                    </button>
+                  `,
+                )
+                .join("")}
+            </div>
+            <input type="hidden" name="meetingAgreed" value="${escapeAttr(draft.meetingAgreed)}" />
+            <small class="field-error">\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435, \u0441\u043e\u0433\u043b\u0430\u0441\u043e\u0432\u0430\u043d\u0430 \u043b\u0438 \u0432\u0441\u0442\u0440\u0435\u0447\u0430.</small>
+          </div>
+          <label class="field" data-field="comment">
+            <span>\u041a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0439</span>
+            <textarea name="comment" placeholder="\u0414\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u0430\u044f \u0438\u043d\u0444\u043e\u0440\u043c\u0430\u0446\u0438\u044f \u0434\u043b\u044f \u043a\u043e\u043b\u043b\u0435\u0433\u0438">${escapeHtml(draft.comment)}</textarea>
+            <small class="field-error">\u041a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0439 \u043d\u0435 \u0434\u043e\u043b\u0436\u0435\u043d \u0441\u043e\u0434\u0435\u0440\u0436\u0430\u0442\u044c \u043d\u0435\u0434\u043e\u043f\u0443\u0441\u0442\u0438\u043c\u044b\u0439 \u0442\u0435\u043a\u0441\u0442.</small>
+          </label>
+        </div>
+      </section>
+    `;
+  }
+
+  function collectDeliveryDraftsFromForm(form) {
+    return Array.from(form.querySelectorAll("[data-delivery-draft]"))
+      .map((section) => ({
+        deliveryNumber: normalizeSpaces(section.querySelector('[name="deliveryNumber"]')?.value),
+        productType: String(section.querySelector('[name="productType"]')?.value || "").trim(),
+        deliveryAddress: normalizeSpaces(section.querySelector('[name="deliveryAddress"]')?.value),
+        deliveryInterval: String(section.querySelector('[name="deliveryIntervalRow"]')?.value || "").trim(),
+        meetingAgreed: String(section.querySelector('[name="meetingAgreed"]')?.value || "").trim(),
+        comment: normalizeSpaces(section.querySelector('[name="comment"]')?.value),
+      }))
+      .map((draft) => createDeliveryDraft(draft));
+  }
+
+  function bindDeliveryDraftEditor(form, options = {}) {
+    const list = form.querySelector("#deliveryDrafts");
+    const addButton = form.querySelector("#addDeliveryDraft");
+    const clearFieldError = options.clearFieldError || (() => {});
+    const escapeAttr = options.escapeAttr || ((input) => String(input ?? ""));
+    const escapeHtml = options.escapeHtml || ((input) => String(input ?? ""));
+    const intervals = Array.isArray(options.intervals) ? options.intervals : [];
+    const isEdit = Boolean(options.isEdit);
+    if (!list) return;
+
+    let expandedStates = [];
+
+    const updateSectionSummary = (section) => {
+      const summary = section.querySelector("[data-delivery-draft-summary]");
+      if (!summary) return;
+      const draft = createDeliveryDraft({
+        deliveryNumber: section.querySelector('[name="deliveryNumber"]')?.value,
+        productType: section.querySelector('[name="productType"]')?.value,
+        deliveryAddress: section.querySelector('[name="deliveryAddress"]')?.value,
+        deliveryInterval: section.querySelector('[name="deliveryIntervalRow"]')?.value,
+        meetingAgreed: section.querySelector('[name="meetingAgreed"]')?.value,
+        comment: section.querySelector('[name="comment"]')?.value,
+      });
+      summary.textContent = getDeliveryDraftSummary(draft);
+    };
+
+    const applyExpandedStates = () => {
+      Array.from(list.querySelectorAll("[data-delivery-draft]")).forEach((section, index) => {
+        const expanded = Boolean(expandedStates[index]);
+        section.classList.toggle("is-expanded", expanded);
+        section.classList.toggle("is-collapsed", !expanded);
+        section.querySelector(".delivery-draft__content")?.toggleAttribute("hidden", !expanded);
+        section.querySelector("[data-toggle-delivery-draft]")?.setAttribute("aria-expanded", expanded ? "true" : "false");
+      });
+    };
+
+    const setExpanded = (index, expanded) => {
+      expandedStates[index] = Boolean(expanded);
+      applyExpandedStates();
+    };
+
+    const toggleExpanded = (index) => {
+      setExpanded(index, !expandedStates[index]);
+    };
+
+    const bindSection = (section, index) => {
+      section.querySelectorAll("input, textarea, select").forEach((field) => {
+        field.addEventListener("input", () => {
+          clearFieldError(field);
+          updateSectionSummary(section);
+        });
+        field.addEventListener("change", () => {
+          clearFieldError(field);
+          updateSectionSummary(section);
+        });
+      });
+      section.querySelectorAll("[data-meeting-choice]").forEach((button) => {
+        button.addEventListener("click", () => {
+          section.querySelector('[name="meetingAgreed"]').value = button.dataset.meetingChoice;
+          section.querySelectorAll("[data-meeting-choice]").forEach((item) => item.classList.toggle("is-active", item === button));
+          clearFieldError(section.querySelector('[name="meetingAgreed"]'));
+          updateSectionSummary(section);
+        });
+      });
+      section.querySelector("[data-toggle-delivery-draft]")?.addEventListener("click", () => toggleExpanded(index));
+      section.querySelector("[data-remove-delivery-draft]")?.addEventListener("click", () => {
+        const drafts = collectDeliveryDraftsFromForm(form);
+        const nextExpandedStates = expandedStates.filter((_, draftIndex) => draftIndex !== index);
+        drafts.splice(index, 1);
+        renderDrafts(drafts, nextExpandedStates);
+      });
+      updateSectionSummary(section);
+    };
+
+    const renderDrafts = (drafts, nextExpandedStates = []) => {
+      expandedStates = drafts.map((_, index) => Boolean(nextExpandedStates[index]));
+      list.innerHTML = drafts
+        .map((draft, index) =>
+          renderDeliveryDraftCard(draft, index, {
+            escapeAttr,
+            escapeHtml,
+            intervals,
+            expanded: expandedStates[index],
+            canRemove: !isEdit && drafts.length > 1,
+          }),
+        )
+        .join("");
+      Array.from(list.querySelectorAll("[data-delivery-draft]")).forEach((section, index) => bindSection(section, index));
+      applyExpandedStates();
+    };
+
+    addButton?.addEventListener("click", () => {
+      const drafts = collectDeliveryDraftsFromForm(form);
+      const nextExpandedStates = drafts.map(() => false);
+      drafts.push(createDeliveryDraft());
+      nextExpandedStates.push(true);
+      renderDrafts(drafts, nextExpandedStates);
+      list.querySelector('[data-delivery-draft]:last-child [name="deliveryNumber"]')?.focus();
+    });
+
+    const initialDrafts = Array.isArray(options.drafts) && options.drafts.length ? options.drafts : [createDeliveryDraft()];
+    renderDrafts(initialDrafts, initialDrafts.map((_, index) => index === 0));
+    form.__setDeliveryDraftExpanded = setExpanded;
+  }
+
+
+  async function handleSwapFormSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
     const formData = new FormData(form);
@@ -1452,6 +1904,7 @@
 
     const existing = getOwnPoint();
     const point = {
+      pointType: "swap",
       id: existing?.id || "",
       cityId: state.cityId,
       location,
@@ -1471,19 +1924,150 @@
     }
   }
 
+  async function handleDeliveryFormSubmit(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const existingPoint = state.points.find((item) => item.id === event.currentTarget.dataset.pointId) || null;
+    const draftSections = Array.from(form.querySelectorAll("[data-delivery-draft]"));
+    const draftPayloads = draftSections.map((section, index) => ({
+      index,
+      section,
+      deliveryNumber: normalizeSpaces(section.querySelector('[name="deliveryNumber"]')?.value),
+      productType: String(section.querySelector('[name="productType"]')?.value || "").trim(),
+      deliveryAddress: normalizeSpaces(section.querySelector('[name="deliveryAddress"]')?.value),
+      deliveryInterval: String(section.querySelector('[name="deliveryIntervalRow"]')?.value || "").trim(),
+      meetingAgreed: String(section.querySelector('[name="meetingAgreed"]')?.value || "").trim(),
+      comment: normalizeSpaces(section.querySelector('[name="comment"]')?.value),
+      deliveryNumberInput: section.querySelector('[name="deliveryNumber"]'),
+      productTypeInput: section.querySelector('[name="productType"]'),
+      deliveryAddressInput: section.querySelector('[name="deliveryAddress"]'),
+      deliveryIntervalInput: section.querySelector('[name="deliveryIntervalRow"]'),
+      meetingAgreedInput: section.querySelector('[name="meetingAgreed"]'),
+      commentInput: section.querySelector('[name="comment"]'),
+    }));
+
+    let firstInvalid = null;
+    const expandDraft = (draft) => {
+      form.__setDeliveryDraftExpanded?.(draft.index, true);
+    };
+
+    draftPayloads.forEach((draft) => {
+      if (!draft.deliveryNumber) {
+        setFieldError(draft.deliveryNumberInput, "\u0423\u043a\u0430\u0436\u0438\u0442\u0435 \u043d\u043e\u043c\u0435\u0440 \u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0438.");
+        firstInvalid = firstInvalid || draft.deliveryNumberInput;
+        expandDraft(draft);
+      }
+      if (!draft.productType) {
+        setFieldError(draft.productTypeInput, "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u043f\u0440\u043e\u0434\u0443\u043a\u0442.");
+        firstInvalid = firstInvalid || draft.productTypeInput;
+        expandDraft(draft);
+      }
+      if (!draft.deliveryAddress) {
+        setFieldError(draft.deliveryAddressInput, "\u0423\u043a\u0430\u0436\u0438\u0442\u0435 \u0430\u0434\u0440\u0435\u0441 \u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0438.");
+        firstInvalid = firstInvalid || draft.deliveryAddressInput;
+        expandDraft(draft);
+      }
+      if (!draft.deliveryInterval) {
+        setFieldError(draft.deliveryIntervalInput, "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0438\u043d\u0442\u0435\u0440\u0432\u0430\u043b \u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0438.");
+        firstInvalid = firstInvalid || draft.deliveryIntervalInput;
+        expandDraft(draft);
+      }
+      if (!draft.meetingAgreed) {
+        setFieldError(draft.meetingAgreedInput, "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435, \u0441\u043e\u0433\u043b\u0430\u0441\u043e\u0432\u0430\u043d\u0430 \u043b\u0438 \u0432\u0441\u0442\u0440\u0435\u0447\u0430.");
+        firstInvalid = firstInvalid || draft.meetingAgreedInput;
+        expandDraft(draft);
+      }
+      if (draft.deliveryAddress && containsForbiddenContent(draft.deliveryAddress)) {
+        setFieldError(draft.deliveryAddressInput, "\u041d\u0435\u0434\u043e\u043f\u0443\u0441\u0442\u0438\u043c\u043e\u0435 \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u043c\u043e\u0435: \u0443\u0431\u0435\u0440\u0438\u0442\u0435 \u043c\u0430\u0442 \u0438\u043b\u0438 \u043f\u043e\u0448\u043b\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442.");
+        firstInvalid = firstInvalid || draft.deliveryAddressInput;
+        expandDraft(draft);
+      }
+      if (draft.comment && containsForbiddenContent(draft.comment)) {
+        setFieldError(draft.commentInput, "\u041d\u0435\u0434\u043e\u043f\u0443\u0441\u0442\u0438\u043c\u043e\u0435 \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u043c\u043e\u0435: \u0443\u0431\u0435\u0440\u0438\u0442\u0435 \u043c\u0430\u0442 \u0438\u043b\u0438 \u043f\u043e\u0448\u043b\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442.");
+        firstInvalid = firstInvalid || draft.commentInput;
+        expandDraft(draft);
+      }
+    });
+
+    if (firstInvalid) {
+      firstInvalid.focus?.();
+      showToast("\u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u0437\u0430\u043f\u043e\u043b\u043d\u0435\u043d\u0438\u0435 \u0444\u043e\u0440\u043c\u044b.");
+      return;
+    }
+
+    const deliveryPoints = [];
+    for (const draft of draftPayloads) {
+      const resolvedLatLng = await geocodeDeliveryAddress(draft.deliveryAddress).catch(() => null);
+      if (!resolvedLatLng) {
+        setFieldError(draft.deliveryAddressInput, "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043d\u0430\u0439\u0442\u0438 \u0430\u0434\u0440\u0435\u0441 \u043d\u0430 \u043a\u0430\u0440\u0442\u0435. \u0423\u0442\u043e\u0447\u043d\u0438\u0442\u0435 \u0430\u0434\u0440\u0435\u0441 \u0438\u043b\u0438 \u0434\u043e\u043c.");
+        expandDraft(draft);
+        draft.deliveryAddressInput?.focus();
+        showToast("\u0423\u0442\u043e\u0447\u043d\u0438\u0442\u0435 \u0430\u0434\u0440\u0435\u0441 \u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0438. \u041c\u0435\u0442\u043a\u0430 \u0441\u043e\u0437\u0434\u0430\u0451\u0442\u0441\u044f \u0442\u043e\u043b\u044c\u043a\u043e \u043f\u043e \u043d\u0430\u0439\u0434\u0435\u043d\u043d\u043e\u043c\u0443 \u0430\u0434\u0440\u0435\u0441\u0443.");
+        return;
+      }
+      deliveryPoints.push({
+        pointType: "delivery",
+        id: existingPoint?.id || "",
+        cityId: state.cityId,
+        lat: resolvedLatLng.lat,
+        lng: resolvedLatLng.lng,
+        deliveryNumber: draft.deliveryNumber,
+        productType: draft.productType,
+        deliveryInterval: draft.deliveryInterval,
+        deliveryAddress: draft.deliveryAddress,
+        meetingAgreed: draft.meetingAgreed,
+        comment: draft.comment,
+      });
+    }
+
+    try {
+      if (existingPoint) {
+        await saveRemotePoint(deliveryPoints[0], existingPoint);
+        saveLastLocation(L.latLng(deliveryPoints[0].lat, deliveryPoints[0].lng), 14);
+      } else {
+        await saveRemotePointsBatch(deliveryPoints);
+        saveLastLocation(L.latLng(deliveryPoints[0].lat, deliveryPoints[0].lng), 14);
+      }
+    } catch (error) {
+      console.error(error);
+      showToast(error.message || "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0437\u0430\u044f\u0432\u043a\u0443.");
+    }
+  }
+
+  function buildPointUpsertPayload(point, existing) {
+    return point.pointType === "delivery"
+      ? {
+          point_id: existing?.id || null,
+          point_type: "delivery",
+          city_id: point.cityId,
+          day_key: getDayKey(getActiveCity()),
+          delivery_number: point.deliveryNumber,
+          product_type: point.productType,
+          delivery_interval: point.deliveryInterval,
+          delivery_address: point.deliveryAddress,
+          meeting_agreed: point.meetingAgreed,
+          comment: point.comment || null,
+          lat: point.lat,
+          lng: point.lng,
+        }
+      : {
+          point_id: existing?.id || null,
+          point_type: "swap",
+          city_id: point.cityId,
+          day_key: getDayKey(getActiveCity()),
+          preferred_location: point.location,
+          logistic_center: point.logisticCenter || null,
+          comment: point.comment || null,
+          attachments: point.attachments || [],
+          lat: point.lat,
+          lng: point.lng,
+        };
+  }
+
   async function saveRemotePoint(point, existing, options = {}) {
     const { silentToast = false } = options;
-    const result = await apiClient.upsertPoint({
-      point_id: existing?.id || null,
-      city_id: point.cityId,
-      day_key: getDayKey(getActiveCity()),
-      preferred_location: point.location,
-      logistic_center: point.logisticCenter || null,
-      comment: point.comment || null,
-      attachments: point.attachments || [],
-      lat: point.lat,
-      lng: point.lng,
-    });
+    const payload = buildPointUpsertPayload(point, existing);
+    const result = await apiClient.upsertPoint(payload);
 
     if (!existing && result.point?.id) {
       markerIntroPointIds.add(result.point.id);
@@ -1496,13 +2080,46 @@
       closeSheet();
     }
     if (!silentToast) {
-      showToast(existing ? "Ваша точка обновлена." : "Точка опубликована на общей карте.");
+      showToast(
+        existing
+          ? point.pointType === "delivery"
+            ? "Заявка на доставку обновлена."
+            : "Ваша точка обновлена."
+          : point.pointType === "delivery"
+            ? "Метка доставки опубликована на карте."
+            : "Точка опубликована на общей карте.",
+      );
     }
+  }
+
+  async function saveRemotePointsBatch(points) {
+    if (!Array.isArray(points) || !points.length) return;
+    for (const point of points) {
+      const result = await apiClient.upsertPoint(buildPointUpsertPayload(point, null));
+      if (result.point?.id) {
+        markerIntroPointIds.add(result.point.id);
+      }
+    }
+    await loadRemoteState();
+    closeSheet();
+    showToast(
+      points.length === 1
+        ? "Метка доставки опубликована на карте."
+        : `Опубликовано ${points.length} меток доставки.`,
+    );
   }
 
   function openCard(pointId) {
     const point = getPoint(pointId);
     if (!point) return;
+    if (point.pointType === "delivery") {
+      if (!point.isOwn && point.deliveryAvailability === "reserved" && !point.deliveryReservedByMe) {
+        showToast("Метка уже забронирована, дождитесь пока она станет доступна или выберите другую.");
+        return;
+      }
+      openDeliveryCard(point);
+      return;
+    }
 
     const isOwn = point.id === state.ownPointId;
     const status = statuses[point.status] || statuses.search;
@@ -1559,7 +2176,7 @@
     if (offerExchange) offerExchange.addEventListener("click", () => createProposal(point));
 
     const editOwn = document.getElementById("editOwn");
-    if (editOwn) editOwn.addEventListener("click", () => openForm(point));
+    if (editOwn) editOwn.addEventListener("click", () => openSwapForm(point));
 
     const moveOwnPoint = document.getElementById("moveOwnPoint");
     if (moveOwnPoint) {
@@ -1571,8 +2188,60 @@
     }
 
     const deleteButton = document.getElementById("deletePoint");
-    if (deleteButton) deleteButton.addEventListener("click", deleteOwnPoint);
+    if (deleteButton) deleteButton.addEventListener("click", () => deletePoint(point));
 
+    openSheet();
+  }
+
+  function openDeliveryCard(point) {
+    const isOwn = Boolean(point.isOwn);
+    const detailsVisible = Boolean(point.deliveryDetailsVisible || point.deliveryReservedByMe || isOwn);
+    const availabilityLabel =
+      point.deliveryAvailability === "available"
+        ? "Доступна"
+        : point.deliveryReservedByMe || isOwn
+          ? "Забронирована вами"
+          : "Забронирована";
+    const detailItems = detailsVisible
+      ? [
+          renderDetailItem("Номер доставки", point.deliveryNumber),
+          renderDetailItem("Адрес", point.deliveryAddress),
+          renderDetailItem("Встреча согласована", formatMeetingAgreed(point.meetingAgreed)),
+          renderDetailItem("Телефон", canViewPointContacts(point) ? point.phone : ""),
+          renderDetailItem("Telegram", canViewPointContacts(point) ? point.telegram : ""),
+          renderDetailItem("Комментарий", point.comment),
+        ].filter(Boolean)
+      : [];
+
+    dom.sheetContent.innerHTML = `
+      <h2 class="sheet-title">${isOwn ? "Моя заявка на доставку" : "Заявка на доставку"}</h2>
+      <p class="sheet-subtitle">${escapeHtml(point.productType)} • ${escapeHtml(point.deliveryInterval)}</p>
+      <div class="status-row">
+        <span class="status-badge ${point.deliveryAvailability === "available" ? "status-search" : "status-unavailable"}">${escapeHtml(availabilityLabel)}</span>
+        ${isOwn ? '<span class="status-badge status-own">Моя метка</span>' : ""}
+      </div>
+      ${
+        !detailsVisible && !isOwn
+          ? '<div class="public-warning">Чтобы открыть полную информацию и контакты автора, сначала забронируйте метку.</div>'
+          : ""
+      }
+      ${detailItems.length ? `<div class="detail-grid">${detailItems.join("")}</div>` : ""}
+      <div class="button-grid">
+        ${
+          !isOwn && !detailsVisible
+            ? '<button class="action-button primary" id="reserveDeliveryPoint" type="button">Забронировать</button>'
+            : ""
+        }
+        ${!isOwn && detailsVisible ? renderContactAction("phone", point.phone) : ""}
+        ${!isOwn && detailsVisible ? renderContactAction("telegram", point.telegram) : ""}
+        ${isOwn ? '<button class="action-button" id="editDeliveryPoint" type="button">Изменить данные</button>' : ""}
+        ${isOwn ? '<button class="action-button danger" id="deleteDeliveryPoint" type="button">Удалить</button>' : ""}
+      </div>
+    `;
+
+    document.getElementById("reserveDeliveryPoint")?.addEventListener("click", () => reserveDeliveryPoint(point.id));
+    document.getElementById("editDeliveryPoint")?.addEventListener("click", () => openDeliveryForm(point));
+    document.getElementById("deleteDeliveryPoint")?.addEventListener("click", () => deletePoint(point));
     openSheet();
   }
 
@@ -1635,10 +2304,305 @@
     }
   }
 
+  async function reserveDeliveryPoint(pointId) {
+    try {
+      const result = await apiClient.reservePoint(pointId);
+      await loadRemoteState();
+      const point = normalizeRemotePoint(result.point);
+      openDeliveryCard(point);
+      showToast("Метка забронирована за вами.");
+    } catch (error) {
+      showToast(error.message || "Не удалось забронировать метку.");
+    }
+  }
+
+  async function geocodeDeliveryAddress(address) {
+    const normalized = normalizeSpaces(address);
+    if (!normalized) return null;
+
+    const city = getActiveCity();
+    const geocodeBounds = city.geocodeBounds || city.bounds || null;
+    const requestVariants = buildGeocodeAddressQueries(normalized, city);
+
+    for (const requestVariant of requestVariants) {
+      const url = new URL("https://nominatim.openstreetmap.org/search");
+      url.searchParams.set("format", "jsonv2");
+      url.searchParams.set("limit", "5");
+      url.searchParams.set("countrycodes", "ru");
+      url.searchParams.set("addressdetails", "1");
+      if (geocodeBounds) {
+        const [[minLat, minLng], [maxLat, maxLng]] = geocodeBounds;
+        url.searchParams.set("viewbox", `${minLng},${maxLat},${maxLng},${minLat}`);
+        url.searchParams.set("bounded", "1");
+      }
+      Object.entries(requestVariant).forEach(([key, value]) => {
+        if (value) url.searchParams.set(key, value);
+      });
+      const response = await fetch(url, {
+        headers: {
+          Accept: "application/json",
+          "Accept-Language": "ru",
+        },
+      });
+      if (!response.ok) continue;
+      const data = await response.json().catch(() => []);
+      const match = pickBestGeocodeCandidate(Array.isArray(data) ? data : [], normalized, city);
+      const lat = Number(match?.lat);
+      const lng = Number(match?.lon);
+      if (Number.isFinite(lat) && Number.isFinite(lng) && isAllowedMapPoint({ lat, lng })) {
+        return { lat, lng };
+      }
+    }
+    return null;
+  }
+
+  function buildGeocodeAddressQueries(address, city) {
+    const fallbackCityName = city?.name || getActiveCityName();
+    const parsed = parseDeliveryAddressComponents(address, fallbackCityName);
+    const cityName = parsed.cityName || fallbackCityName;
+    const countryName = "\u0420\u043e\u0441\u0441\u0438\u044f";
+    const citySuffix = cityName ? `, ${cityName}, ${countryName}` : `, ${countryName}`;
+    const queryValues = [
+      parsed.structuredStreet ? `${parsed.structuredStreet}${citySuffix}` : "",
+      parsed.structuredStreet && parsed.district ? `${parsed.structuredStreet}, ${parsed.district}${citySuffix}` : "",
+      parsed.streetWithHouse ? `${parsed.streetWithHouse}${citySuffix}` : "",
+      parsed.streetWithHouse && parsed.district ? `${parsed.streetWithHouse}, ${parsed.district}${citySuffix}` : "",
+      parsed.tailThree ? `${parsed.tailThree}${includesGeocodeFragment(parsed.tailThree, cityName) ? `, ${countryName}` : citySuffix}` : "",
+      parsed.tailTwo ? `${parsed.tailTwo}${includesGeocodeFragment(parsed.tailTwo, cityName) ? `, ${countryName}` : citySuffix}` : "",
+      parsed.withoutUnit
+        ? `${parsed.withoutUnit}${includesGeocodeFragment(parsed.withoutUnit, cityName) ? `, ${countryName}` : citySuffix}`
+        : "",
+      `${parsed.expanded}${includesGeocodeFragment(parsed.expanded, cityName) ? `, ${countryName}` : citySuffix}`,
+    ];
+    const variants = [];
+    const seen = new Set();
+
+    const pushVariant = (variant) => {
+      const entries = Object.entries(variant).filter(([, value]) => value);
+      if (!entries.length) return;
+      const key = entries
+        .map(([entryKey, value]) => `${entryKey}:${normalizeGeocodeAddressInput(String(value))}`)
+        .join("|");
+      if (seen.has(key)) return;
+      seen.add(key);
+      variants.push(variant);
+    };
+
+    if (parsed.structuredStreet) {
+      pushVariant({
+        street: parsed.structuredStreet,
+        city: cityName,
+        county: parsed.district || "",
+        postalcode: parsed.postalCode || "",
+        country: countryName,
+      });
+    }
+
+    queryValues
+      .map((value) => normalizeGeocodeAddressInput(value))
+      .filter(Boolean)
+      .forEach((value) => pushVariant({ q: value }));
+
+    return variants;
+  }
+
+  function parseDeliveryAddressComponents(address, fallbackCityName) {
+    const expanded = expandGeocodeAddressText(address);
+    const postalCode = (expanded.match(/^\d{5,6}\b/u) || [""])[0];
+    const withoutPostal = expanded.replace(/^\d{5,6}\s*,?\s*/u, "");
+    const withoutUnit = removeTrailingUnitSegment(withoutPostal);
+    const segments = withoutUnit.split(/\s*,\s*/).filter(Boolean);
+    const fallbackCityFragment = normalizeGeocodeFragment(fallbackCityName);
+    const citySegment =
+      segments.find((segment) => /\b(?:\u0433\u043e\u0440\u043e\u0434|\u0433)\b/iu.test(segment)) ||
+      segments.find((segment) => fallbackCityFragment && includesGeocodeFragment(segment, fallbackCityName)) ||
+      "";
+    const cityName = normalizeCitySegment(citySegment) || fallbackCityName;
+    const cityFragment = normalizeGeocodeFragment(cityName);
+    const filteredSegments = segments.filter((segment) => {
+      const normalizedSegment = normalizeGeocodeFragment(segment);
+      if (!normalizedSegment) return false;
+      if (cityFragment && normalizedSegment === cityFragment) return false;
+      return !/^\d{5,6}$/u.test(normalizedSegment);
+    });
+
+    const district =
+      filteredSegments.find((segment) => /\b(?:\u0440\u0430\u0439\u043e\u043d|\u043e\u043a\u0440\u0443\u0433|\u043f\u043e\u0441\u0435\u043b\u0435\u043d\u0438\u0435)\b/iu.test(segment)) ||
+      "";
+    const street =
+      filteredSegments.find((segment) =>
+        /\b(?:\u0443\u043b\u0438\u0446\u0430|\u043f\u0440\u043e\u0441\u043f\u0435\u043a\u0442|\u043f\u0435\u0440\u0435\u0443\u043b\u043e\u043a|\u043f\u0440\u043e\u0435\u0437\u0434|\u0448\u043e\u0441\u0441\u0435|\u043d\u0430\u0431\u0435\u0440\u0435\u0436\u043d\u0430\u044f|\u0431\u0443\u043b\u044c\u0432\u0430\u0440|\u043f\u043b\u043e\u0449\u0430\u0434\u044c|\u0430\u043b\u043b\u0435\u044f|\u043f\u0440\u043e\u0441\u0435\u043a)\b/iu.test(
+          segment,
+        ),
+      ) ||
+      "";
+    const house =
+      filteredSegments.find((segment) =>
+        /\b(?:\u0434\u043e\u043c|\u043a\u043e\u0440\u043f\u0443\u0441|\u0441\u0442\u0440\u043e\u0435\u043d\u0438\u0435|\u0432\u043b\u0430\u0434\u0435\u043d\u0438\u0435|\u043b\u0438\u0442\u0435\u0440\u0430)\b/iu.test(
+          segment,
+        ),
+      ) ||
+      "";
+    const streetWithHouse = [street, house].filter(Boolean).join(", ");
+    const structuredStreet = normalizeStructuredStreet(street, house);
+    return {
+      expanded,
+      postalCode,
+      withoutPostal,
+      withoutUnit,
+      cityName,
+      district,
+      street,
+      house,
+      streetWithHouse,
+      structuredStreet,
+      tailTwo: filteredSegments.slice(-2).join(", "),
+      tailThree: filteredSegments.slice(-3).join(", "),
+    };
+  }
+
+  function expandGeocodeAddressText(address) {
+    return normalizeGeocodeAddressInput(
+      String(address || "")
+        .replace(/\b\u0433\.?\s+/giu, "\u0433\u043e\u0440\u043e\u0434 ")
+        .replace(/\b\u0440-?\u043d\b/giu, "\u0440\u0430\u0439\u043e\u043d")
+        .replace(/\b\u0443\u043b\.?\s+/giu, "\u0443\u043b\u0438\u0446\u0430 ")
+        .replace(/\b\u043f\u0440-?\u0442\.?\s+/giu, "\u043f\u0440\u043e\u0441\u043f\u0435\u043a\u0442 ")
+        .replace(/\b\u043f\u0435\u0440\.?\s+/giu, "\u043f\u0435\u0440\u0435\u0443\u043b\u043e\u043a ")
+        .replace(/\b\u043f\u0440-?\u0434\.?\s+/giu, "\u043f\u0440\u043e\u0435\u0437\u0434 ")
+        .replace(/\b\u0448\.?\s+/giu, "\u0448\u043e\u0441\u0441\u0435 ")
+        .replace(/\b\u043d\u0430\u0431\.?\s+/giu, "\u043d\u0430\u0431\u0435\u0440\u0435\u0436\u043d\u0430\u044f ")
+        .replace(/\b\u0431-?\u0440\.?\s+/giu, "\u0431\u0443\u043b\u044c\u0432\u0430\u0440 ")
+        .replace(/\b\u043f\u043b\.?\s+/giu, "\u043f\u043b\u043e\u0449\u0430\u0434\u044c ")
+        .replace(/\b\u0434\.?\s+/giu, "\u0434\u043e\u043c ")
+        .replace(/\b\u043a\u043e\u0440\u043f\.?\s+/giu, "\u043a\u043e\u0440\u043f\u0443\u0441 ")
+        .replace(/\b\u0441\u0442\u0440\.?\s+/giu, "\u0441\u0442\u0440\u043e\u0435\u043d\u0438\u0435 ")
+        .replace(/\b\u043a\u0432\.?\s+/giu, "\u043a\u0432\u0430\u0440\u0442\u0438\u0440\u0430 "),
+    );
+  }
+
+  function normalizeStructuredStreet(street, house) {
+    const normalizedStreet = normalizeSpaces(String(street || "").replace(/^\d{5,6}\s*,?\s*/u, ""));
+    const normalizedHouse = normalizeSpaces(String(house || "").replace(/^(?:\u0434\u043e\u043c)\s*/iu, ""));
+    if (!normalizedStreet) return "";
+    return normalizedHouse ? `${normalizedStreet}, ${normalizedHouse}` : normalizedStreet;
+  }
+
+  function normalizeGeocodeAddressInput(address) {
+    return normalizeSpaces(String(address || "").replace(/[\r\n]+/g, ", ").replace(/\s*,\s*/g, ", "));
+  }
+
+  function removeTrailingUnitSegment(address) {
+    return normalizeSpaces(
+      String(address || "").replace(
+        /(?:,|\s)+(?:\u043a\u0432(?:\u0430\u0440\u0442\u0438\u0440\u0430)?|\u0430\u043f(?:\u0430\u0440\u0442\u0430\u043c\u0435\u043d\u0442)?|apt|\u043f\u043e\u0434(?:\u044a|\u044c)\u0435\u0437\u0434|\u044d\u0442\u0430\u0436|\u044d\u0442\.?|\u043e\u0444\u0438\u0441|\u043f\u043e\u043c(?:\u0435\u0449\u0435\u043d\u0438\u0435)?)\.?\s*[\p{L}\d\-\/]+.*$/iu,
+        "",
+      ),
+    );
+  }
+
+  function normalizeCitySegment(segment) {
+    return normalizeSpaces(
+      String(segment || "")
+        .replace(/^\d{5,6}\s*,?\s*/u, "")
+        .replace(/^(?:\u0433\u043e\u0440\u043e\u0434|\u0433)\.?\s*/iu, ""),
+    );
+  }
+
+  function includesGeocodeFragment(value, fragment) {
+    return normalizeGeocodeFragment(value).includes(normalizeGeocodeFragment(fragment));
+  }
+
+  function normalizeGeocodeFragment(value) {
+    return String(value || "")
+      .toLowerCase()
+      .replace(/\u0451/g, "\u0435")
+      .replace(/[^\p{L}\d]+/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function pickBestGeocodeCandidate(candidates, address, city) {
+    if (!Array.isArray(candidates) || !candidates.length) return null;
+
+    const cityName = city?.name || getActiveCityName();
+    const parsed = parseDeliveryAddressComponents(address, cityName);
+    const houseSource = parsed.house || parsed.streetWithHouse || parsed.withoutUnit || "";
+    const houseNumber = (houseSource.match(/\b\d+[\p{L}\d\-\/]*\b/iu) || [""])[0].toLowerCase();
+    const postalHint = normalizeGeocodeFragment(parsed.postalCode || "");
+    const roadHint = normalizeGeocodeFragment(parsed.street || parsed.tailTwo || parsed.withoutUnit || "");
+    const districtHint = normalizeGeocodeFragment(parsed.district || "");
+    const cityHint = normalizeGeocodeFragment(parsed.cityName || cityName);
+    const center = city.center || [0, 0];
+
+    return candidates
+      .filter((item) => {
+        const lat = Number(item?.lat);
+        const lng = Number(item?.lon);
+        return Number.isFinite(lat) && Number.isFinite(lng) && isPointInsideGeocodeBounds(lat, lng, city);
+      })
+      .map((item) => {
+        const label = normalizeGeocodeFragment(String(item?.display_name || ""));
+        const addressParts = item?.address || {};
+        const candidateHouseNumber = normalizeGeocodeFragment(String(addressParts.house_number || ""));
+        const candidateRoad = normalizeGeocodeFragment(
+          String(addressParts.road || addressParts.pedestrian || addressParts.residential || addressParts.street || ""),
+        );
+        const candidatePostalCode = normalizeGeocodeFragment(String(addressParts.postcode || ""));
+        const candidateDistrict = normalizeGeocodeFragment(
+          String(addressParts.city_district || addressParts.suburb || addressParts.borough || ""),
+        );
+        const candidateCity = normalizeGeocodeFragment(
+          String(addressParts.city || addressParts.town || addressParts.state || ""),
+        );
+        const houseMatch = houseNumber
+          ? candidateHouseNumber === houseNumber || candidateHouseNumber.startsWith(houseNumber)
+          : false;
+        const houseMismatchPenalty = houseNumber && candidateHouseNumber && !houseMatch ? 32000 : 0;
+        const postalMatch = postalHint ? label.includes(postalHint) || candidatePostalCode === postalHint : false;
+        const roadMatch = roadHint ? label.includes(roadHint) || candidateRoad.includes(roadHint) : false;
+        const districtMatch = districtHint ? label.includes(districtHint) || candidateDistrict.includes(districtHint) : false;
+        const cityMatch = cityHint ? label.includes(cityHint) || candidateCity.includes(cityHint) : false;
+        const categoryPenalty = ["railway", "public_transport", "amenity"].includes(String(item?.category || "")) ? 5000 : 0;
+        const distance = getApproxDistanceMeters(center[0], center[1], Number(item.lat), Number(item.lon));
+        const importanceBoost = Math.round(Number(item?.importance || 0) * 1000);
+        return {
+          item,
+          score:
+            (cityMatch ? 80000 : 0) +
+            (houseMatch ? 60000 : 0) +
+            (postalMatch ? 25000 : 0) +
+            (roadMatch ? 35000 : 0) +
+            (districtMatch ? 15000 : 0) +
+            importanceBoost -
+            houseMismatchPenalty -
+            categoryPenalty -
+            distance,
+        };
+      })
+      .sort((left, right) => right.score - left.score)[0]?.item || null;
+  }
+
+  function isPointInsideGeocodeBounds(lat, lng, city) {
+    const bounds = city.geocodeBounds || city.bounds;
+    if (!Array.isArray(bounds)) return true;
+    const [[minLat, minLng], [maxLat, maxLng]] = bounds;
+    return lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng;
+  }
+
+  function formatMeetingAgreed(value) {
+    return deliveryMeetingOptions[value] || "";
+  }
+
   async function createProposal(target) {
     const own = getOwnPoint();
     if (!own) {
       showToast("Сначала добавьте свою точку на карту.");
+      return;
+    }
+
+    if (target.pointType !== "swap") {
+      showToast("Обмен доступен только для меток обмена районами.");
       return;
     }
 
@@ -1677,7 +2641,8 @@
         day_key: getDayKey(getActiveCity()),
       });
       await loadRemoteState();
-      openProposalsScreen("outgoing");
+      focusProposalRoute(getPoint(own.id), getPoint(target.id));
+      closeSheet();
       showToast("Предложение обмена отправлено.");
     } catch (error) {
       showToast(error.message || "Не удалось отправить предложение.");
@@ -1696,23 +2661,34 @@
       return;
     }
 
-    const incoming = state.proposals.filter((proposal) => proposal.toId === own.id);
-    const outgoing = state.proposals.filter((proposal) => proposal.fromId === own.id);
-    const list = activeTab === "outgoing" ? outgoing : incoming;
+    const incoming = state.proposals.filter((proposal) => proposal.toId === own.id && proposal.status === "pending");
+    const outgoing = state.proposals.filter((proposal) => proposal.fromId === own.id && proposal.status === "pending");
+    const completed = state.proposals.filter(
+      (proposal) => (proposal.toId === own.id || proposal.fromId === own.id) && proposal.status !== "pending",
+    );
+    const list = activeTab === "outgoing" ? outgoing : activeTab === "completed" ? completed : incoming;
+    const emptyMessage =
+      activeTab === "completed" ? "Завершенных обменов пока нет." : "Активных заявок пока нет.";
 
     dom.sheetContent.innerHTML = `
       <h2 class="sheet-title">Заявки на обмен</h2>
       <p class="sheet-subtitle">Контакты откроются обеим сторонам после принятия обмена.</p>
-      <div class="tabs" role="tablist" aria-label="Тип заявок">
+      <div class="tabs scroll-row" role="tablist" aria-label="Тип заявок">
         <button class="tab-button ${activeTab === "incoming" ? "is-active" : ""}" type="button" data-proposal-tab="incoming">
-          Входящие <span>${incoming.length}</span>
+          <span class="tab-button__label">Входящие</span>
+          <span class="tab-button__count">${incoming.length}</span>
         </button>
         <button class="tab-button ${activeTab === "outgoing" ? "is-active" : ""}" type="button" data-proposal-tab="outgoing">
-          Исходящие <span>${outgoing.length}</span>
+          <span class="tab-button__label">Исходящие</span>
+          <span class="tab-button__count">${outgoing.length}</span>
+        </button>
+        <button class="tab-button ${activeTab === "completed" ? "is-active" : ""}" type="button" data-proposal-tab="completed">
+          <span class="tab-button__label">Завершенные</span>
+          <span class="tab-button__count">${completed.length}</span>
         </button>
       </div>
       <div class="nearby-list">
-        ${list.length ? list.map((proposal) => renderProposalItem(proposal, activeTab)).join("") : '<div class="empty-state">Заявок пока нет.</div>'}
+        ${list.length ? list.map((proposal) => renderProposalItem(proposal, activeTab)).join("") : `<div class="empty-state">${emptyMessage}</div>`}
       </div>
     `;
 
@@ -1728,16 +2704,34 @@
     dom.sheetContent.querySelectorAll("[data-open-card]").forEach((button) => {
       button.addEventListener("click", () => openCard(button.dataset.openCard));
     });
+    initScrollableRowsFromModule?.(dom.sheetContent);
 
     openSheet();
   }
 
   function renderProposalItem(proposal, activeTab) {
+    const own = getOwnPoint();
     const from = getPoint(proposal.fromId);
     const to = getPoint(proposal.toId);
-    const colleague = activeTab === "outgoing" ? to : from;
+    const colleague =
+      activeTab === "completed"
+        ? proposal.fromId === own?.id
+          ? to
+          : from
+        : activeTab === "outgoing"
+          ? to
+          : from;
     const displayName = colleague ? getPointDisplayName(colleague) : "Сотрудник удален";
     const canAnswer = proposal.status === "pending" && activeTab === "incoming";
+    const canDecline = proposal.status === "pending" && (activeTab === "incoming" || activeTab === "outgoing");
+    const proposalMeta =
+      activeTab === "completed"
+        ? proposal.status === "accepted"
+          ? "Обмен завершен"
+          : "Заявка закрыта"
+        : activeTab === "outgoing"
+          ? "Вы предложили обмен"
+          : "Вам предложили обмен";
 
     return `
       <article class="nearby-item">
@@ -1746,7 +2740,7 @@
           <span class="proposal-status proposal-${proposal.status}">${proposalStatuses[proposal.status]}</span>
         </div>
         <p class="nearby-meta">
-          ${activeTab === "outgoing" ? "Вы предложили обмен" : "Вам предложили обмен"}
+          ${proposalMeta}
           ${colleague ? ` · ${escapeHtml(colleague.location)}` : ""}
         </p>
         <div class="proposal-route">
@@ -1757,7 +2751,7 @@
         <div class="nearby-actions">
           ${colleague ? `<button type="button" data-open-card="${colleague.id}">Карточка</button>` : ""}
           ${canAnswer ? `<button type="button" data-accept-proposal="${proposal.id}">Принять</button>` : ""}
-          ${canAnswer ? `<button type="button" data-decline-proposal="${proposal.id}">Отказаться</button>` : ""}
+          ${canDecline ? `<button type="button" data-decline-proposal="${proposal.id}">Отклонить</button>` : ""}
         </div>
       </article>
     `;
@@ -1774,7 +2768,7 @@
         queuePointTravelAnimation(proposal.toId, toBefore, fromBefore);
       }
       await loadRemoteState();
-      openProposalsScreen(activeTab);
+      closeSheet();
       showToast("Обмен принят. Точки автоматически поменялись местами.");
     } catch (error) {
       showToast(error.message || "Не удалось принять обмен.");
@@ -1794,6 +2788,7 @@
 
   function openNearbyList() {
     const points = getVisiblePoints()
+      .filter((point) => point.pointType === "swap")
       .filter((point) => point.id !== state.ownPointId)
       .filter((point) => getDistanceMeters(point) <= NEARBY_MAX_DISTANCE_METERS)
       .slice()
@@ -1865,9 +2860,10 @@
     const region = getLogisticCenterRegion(map.getCenter());
     if (!region) {
       activeLogisticCenterFilter = "";
-      dom.logisticCenterFilterSelect.innerHTML = '<option value="">Все логистические центры</option>';
+      dom.logisticCenterFilterSelect.innerHTML = '<option value="">Все ЛЦ</option>';
       dom.logisticCenterFilterSelect.value = "";
       dom.logisticCenterFilterField.hidden = true;
+      filterSelectController?.sync?.();
       return;
     }
 
@@ -1875,7 +2871,7 @@
       activeLogisticCenterFilter = "";
     }
 
-    dom.logisticCenterFilterSelect.innerHTML = ['<option value="">Все логистические центры</option>']
+    dom.logisticCenterFilterSelect.innerHTML = ['<option value="">Все ЛЦ</option>']
       .concat(
         region.options.map(
           (option) =>
@@ -1885,6 +2881,7 @@
       .join("");
     dom.logisticCenterFilterSelect.value = activeLogisticCenterFilter;
     dom.logisticCenterFilterField.hidden = false;
+    filterSelectController?.sync?.();
   }
 
   function refreshMarkers() {
@@ -1919,22 +2916,54 @@
       clusterLayer.removeLayer(marker);
       markerRegistry.delete(pointId);
     });
+    refreshPendingProposalLinks(visibleIds);
     playQueuedMarkerTravelAnimations();
+    syncVisibleDeliveryMarkerModes();
+  }
+
+  function syncVisibleDeliveryMarkerModes() {
+    const mode = getDeliveryMarkerModeFromModule?.(map);
+    markerRegistry.forEach((marker, pointId) => {
+      const point = getPoint(pointId);
+      if (!point || point.pointType !== "delivery") return;
+      syncDeliveryMarkerModeFromModule?.(marker, mode);
+    });
   }
 
   function buildPointMarker(point) {
     const marker = L.marker([point.lat, point.lng], {
-      icon: createPersonIcon(point),
+      icon:
+        point.pointType === "delivery"
+          ? createDeliveryIconFromModule?.({
+              L,
+              point,
+              mode: getDeliveryMarkerModeFromModule?.(map),
+              escapeHtml,
+              intro: markerIntroPointIds.has(point.id),
+            })
+          : createPersonIcon(point),
       title: getPointDisplayName(point),
     });
+    if (point.pointType === "delivery") {
+      marker.on("add", () => syncDeliveryMarkerModeFromModule?.(marker, getDeliveryMarkerModeFromModule?.(map)));
+    }
     marker.on("click", () => openCard(point.id));
     return marker;
   }
 
   function createPersonIcon(point) {
     const status = statuses[point.status] || statuses.search;
-    const ownClass = point.id === state.ownPointId ? "marker-own" : "";
+    const ownClass = point.isOwn ? "marker-own" : "";
     const introClass = markerIntroPointIds.has(point.id) ? "marker-intro" : "";
+    const pendingState = getPendingProposalState(point.id);
+    const pendingClass =
+      pendingState === "outgoing"
+        ? "marker-pending marker-pending-outgoing"
+        : pendingState === "incoming"
+          ? "marker-pending marker-pending-incoming"
+          : pendingState === "both"
+            ? "marker-pending marker-pending-both"
+            : "";
     return L.divIcon({
       html: `
         <span class="person-marker__figure" aria-hidden="true">
@@ -1944,9 +2973,165 @@
           <span class="person-marker__docs"></span>
         </span>
       `,
-      className: `person-marker ${status.markerClass} ${ownClass} ${introClass}`,
+      className: `person-marker ${status.markerClass} ${ownClass} ${introClass} ${pendingClass}`,
       iconSize: [34, 40],
       iconAnchor: [17, 40],
+    });
+  }
+
+  function getPendingProposalState(pointId) {
+    let hasOutgoing = false;
+    let hasIncoming = false;
+    state.proposals.forEach((proposal) => {
+      if (proposal.status !== "pending") return;
+      if (proposal.fromId === pointId) hasOutgoing = true;
+      if (proposal.toId === pointId) hasIncoming = true;
+    });
+    if (hasOutgoing && hasIncoming) return "both";
+    if (hasOutgoing) return "outgoing";
+    if (hasIncoming) return "incoming";
+    return "none";
+  }
+
+  function refreshPendingProposalLinks(visibleIds) {
+    if (!proposalLinkLayer) return;
+    proposalLinkLayer.clearLayers();
+    state.proposals.forEach((proposal) => {
+      if (proposal.status !== "pending") return;
+      const fromPoint = getPoint(proposal.fromId);
+      const toPoint = getPoint(proposal.toId);
+      if (!fromPoint || !toPoint) return;
+      if (!visibleIds.has(fromPoint.id) || !visibleIds.has(toPoint.id)) return;
+      if (!isPersonMarkerVisibleOnMap(fromPoint.id) || !isPersonMarkerVisibleOnMap(toPoint.id)) return;
+      const latLngs = [
+        [fromPoint.lat, fromPoint.lng],
+        [toPoint.lat, toPoint.lng],
+      ];
+      const baseLine = L.polyline(
+        latLngs,
+        {
+          className: "proposal-link-base",
+          color: "#f59e0b",
+          weight: 2,
+          opacity: 0.35,
+          lineCap: "round",
+          interactive: false,
+        },
+      ).addTo(proposalLinkLayer);
+      const shotLine = L.polyline(
+        latLngs,
+        {
+          className: "proposal-link-shot",
+          color: "#f59e0b",
+          weight: 3,
+          opacity: 1,
+          lineCap: "round",
+          interactive: false,
+        },
+      ).addTo(proposalLinkLayer);
+      baseLine.getElement()?.setAttribute("pathLength", "100");
+      shotLine.getElement()?.setAttribute("pathLength", "100");
+    });
+  }
+
+  function refreshPendingProposalLinksForCurrentView() {
+    if (!proposalLinkLayer || !map) return;
+    const visibleIds = new Set(getVisiblePoints().map((point) => point.id));
+    refreshPendingProposalLinks(visibleIds);
+  }
+
+  function isPersonMarkerVisibleOnMap(pointId) {
+    if (!map || !clusterLayer) return false;
+    const point = getPoint(pointId);
+    if (!point || point.pointType !== "swap") return false;
+
+    const marker = markerRegistry.get(pointId);
+    if (!marker || !clusterLayer.hasLayer(marker)) return false;
+    if (!map.getBounds().pad(0.02).contains(marker.getLatLng())) return false;
+
+    const visibleParent = clusterLayer.getVisibleParent?.(marker);
+    if (visibleParent !== marker) return false;
+
+    const iconElement = marker.getElement?.() || marker._icon;
+    return Boolean(iconElement && iconElement.classList?.contains("person-marker"));
+  }
+
+  function focusProposalRoute(fromPoint, toPoint) {
+    if (!map || !fromPoint || !toPoint) return;
+    const fromLat = Number(fromPoint.lat);
+    const fromLng = Number(fromPoint.lng);
+    const toLat = Number(toPoint.lat);
+    const toLng = Number(toPoint.lng);
+    if (![fromLat, fromLng, toLat, toLng].every(Number.isFinite)) return;
+    const fromLatLng = L.latLng(fromLat, fromLng);
+    const toLatLng = L.latLng(toLat, toLng);
+    const bounds = L.latLngBounds([fromLatLng, toLatLng]);
+    if (!bounds.isValid()) return;
+    if (Math.abs(fromLat - toLat) < 0.000001 && Math.abs(fromLng - toLng) < 0.000001) {
+      map.setView(fromLatLng, Math.max(map.getZoom(), 14), { animate: true });
+      return;
+    }
+    fitProposalBounds(bounds, { animate: true });
+  }
+
+  function focusPendingProposalsOnLoad() {
+    if (!map) return;
+    const own = getOwnPoint();
+    if (!own) return;
+    const pendingProposals = state.proposals.filter(
+      (proposal) => proposal.status === "pending" && (proposal.fromId === own.id || proposal.toId === own.id),
+    );
+    if (!pendingProposals.length) return;
+
+    const boundsPoints = new Map();
+    boundsPoints.set(own.id, own);
+    pendingProposals.forEach((proposal) => {
+      const fromPoint = getPoint(proposal.fromId);
+      const toPoint = getPoint(proposal.toId);
+      if (fromPoint) boundsPoints.set(fromPoint.id, fromPoint);
+      if (toPoint) boundsPoints.set(toPoint.id, toPoint);
+    });
+
+    const latLngs = Array.from(boundsPoints.values())
+      .map((point) => {
+        const lat = Number(point.lat);
+        const lng = Number(point.lng);
+        return Number.isFinite(lat) && Number.isFinite(lng) ? L.latLng(lat, lng) : null;
+      })
+      .filter(Boolean);
+
+    if (!latLngs.length) return;
+    if (latLngs.length === 1) {
+      map.setView(latLngs[0], Math.max(map.getZoom(), 14), { animate: true });
+      return;
+    }
+
+    const bounds = L.latLngBounds(latLngs);
+    if (!bounds.isValid()) return;
+    fitProposalBounds(bounds, { animate: true });
+  }
+
+  function clearPendingProposalFocusSnapshot() {
+    try {
+      localStorage.removeItem("changeplace:pending_focus");
+    } catch {}
+  }
+
+  function hasActivePendingProposals() {
+    const own = getOwnPoint();
+    if (!own) return false;
+    return state.proposals.some(
+      (proposal) => proposal.status === "pending" && (proposal.fromId === own.id || proposal.toId === own.id),
+    );
+  }
+
+  function fitProposalBounds(bounds, options = {}) {
+    if (!map || !bounds?.isValid?.()) return;
+    map.fitBounds(bounds.pad(0.38), {
+      paddingTopLeft: [28, 86],
+      paddingBottomRight: [28, 150],
+      maxZoom: 13,
+      animate: options.animate !== false,
     });
   }
 
@@ -2023,20 +3208,54 @@
   }
 
   function getMarkerSignature(point) {
-    return [point.id, getPointDisplayName(point), point.status, point.lat, point.lng, point.id === state.ownPointId ? "own" : "other"].join("|");
+    return [
+      point.id,
+      point.pointType,
+      getPointDisplayName(point),
+      point.status,
+      point.lat,
+      point.lng,
+      point.isOwn ? "own" : "other",
+      getPendingProposalState(point.id),
+      point.productType,
+      point.deliveryInterval,
+      point.deliveryAvailability,
+    ].join("|");
   }
-
   function getVisiblePoints() {
+    const hasDeliveryFilters =
+      Boolean(activeDeliveryProductFilter) ||
+      Boolean(activeDeliveryIntervalFilter) ||
+      activeDeliveryAvailabilityFilter !== "all";
+
     return state.points.filter((point) => {
       if (point.cityId !== state.cityId) return false;
-      if (activeFilter !== "all" && point.status !== activeFilter) return false;
-      if (activeLogisticCenterFilter && point.logisticCenter !== activeLogisticCenterFilter) return false;
+      if (activeFilter === "delivery") {
+        if (point.pointType !== "delivery") return false;
+      } else if (activeFilter !== "all") {
+        if (point.pointType !== "swap" || point.status !== activeFilter) return false;
+      }
+
+      if (point.pointType === "delivery") {
+        if (activeDeliveryProductFilter && point.productType !== activeDeliveryProductFilter) return false;
+        if (activeDeliveryIntervalFilter && point.deliveryInterval !== activeDeliveryIntervalFilter) return false;
+        if (activeDeliveryAvailabilityFilter === "available" && point.deliveryAvailability !== "available") return false;
+        if (
+          activeDeliveryAvailabilityFilter === "reserved" &&
+          !["reserved", "reserved_by_me"].includes(point.deliveryAvailability)
+        ) {
+          return false;
+        }
+      } else {
+        if (hasDeliveryFilters) return false;
+        if (activeLogisticCenterFilter && point.logisticCenter !== activeLogisticCenterFilter) return false;
+      }
       return true;
     });
   }
 
   function getOwnPoint() {
-    const own = state.points.find((point) => point.isOwn);
+    const own = state.points.find((point) => point.isOwn && point.pointType === "swap");
     state.ownPointId = own?.id || null;
     return own || null;
   }
@@ -2084,6 +3303,9 @@
 
   function getPointDisplayName(point) {
     if (!point) return "Мобильный Банкир";
+    if (point.pointType === "delivery") {
+      return point.isOwn || point.deliveryDetailsVisible || point.deliveryReservedByMe ? point.name : "Заявка на доставку";
+    }
     return canViewPointContacts(point) ? point.name : "Мобильный Банкир";
   }
 
@@ -2105,20 +3327,22 @@
     showToast(message);
   }
 
-  async function deleteOwnPoint() {
-    const own = getOwnPoint();
-    if (!own) return;
-    const confirmed = window.confirm("Удалить вашу активную точку с карты?");
+  async function deletePoint(point = getOwnPoint()) {
+    if (!point) return;
+    const label = point.pointType === "delivery" ? "эту метку доставки" : "вашу активную точку";
+    const confirmed = window.confirm(`Удалить ${label} с карты?`);
     if (!confirmed) return;
 
     try {
-      await apiClient.deletePoint(own.id);
-      state.ownPointId = null;
+      await apiClient.deletePoint(point.id);
+      if (point.pointType === "swap") {
+        state.ownPointId = null;
+      }
       pendingLatLng = null;
       moveMode = false;
       await loadRemoteState();
       closeSheet();
-      showToast("Ваша точка удалена.");
+      showToast(point.pointType === "delivery" ? "Метка доставки удалена." : "Ваша точка удалена.");
     } catch (error) {
       showToast(error.message || "Не удалось удалить точку.");
     }
@@ -2183,6 +3407,26 @@
       month: "2-digit",
       day: "2-digit",
     }).format(new Date());
+  }
+
+  function buildDeliveryIntervals() {
+    const values = [];
+    for (let hour = 9; hour <= 21; hour += 2) {
+      const nextHour = hour + 2;
+      values.push(`${String(hour).padStart(2, "0")}:00-${String(nextHour).padStart(2, "0")}:00`);
+    }
+    return values;
+  }
+
+  function getApproxDistanceMeters(fromLat, fromLng, toLat, toLng) {
+    const toRad = (value) => (value * Math.PI) / 180;
+    const earthRadius = 6371000;
+    const dLat = toRad(toLat - fromLat);
+    const dLng = toRad(toLng - fromLng);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(fromLat)) * Math.cos(toRad(toLat)) * Math.sin(dLng / 2) ** 2;
+    return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
   function getCityEndOfDay(city) {
